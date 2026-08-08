@@ -1,0 +1,4 @@
+id,name,category,tags,difficulty,description,symbolImageFile,photoImageFile
+lamp_receptacle,ランプレセプタクル,照明器具,照明|レセプタクル,2,電球などを取り付けるための器具,lamp_receptacle_symbol.webp,lamp_receptacle_photo.jpg
+outlet_2p,2口コンセント,コンセント,コンセント|配線器具,1,2つの電気機器を同時に接続できる差込接続器,outlet_2p_symbol.webp,outlet_2p_photo.jpg
+earth_outlet,接地極付コンセント,コンセント,コンセント|接地,2,アース線を接続できる差込接続器で漏電時の感電を防止する,earth_outlet_symbol.webp,earth_outlet_photo.jpg
