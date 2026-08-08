@@ -380,8 +380,7 @@ const DEFAULT_SETTINGS = {
   questionCount: 10,          // 1回の出題数デフォルト
   randomOrder: true,          // ランダム性を出題順に反映
   enabledModes: {             // 出題方向ごとの有効/無効(将来拡張しやすい構造)
-    symbol2name:true, photo2name:true, desc2name:true,
-    name2symbol:true, name2photo:true, name2desc:true
+    symbol2name:true, photo2name:true, desc2name:true, name2desc:true
   }
 };
 
@@ -395,8 +394,6 @@ const QUESTION_MODES = [
   { id:'symbol2name', label:'配線図記号 → 名称', qSide:'symbol', aSide:'name', qLabel:'この配線図記号の名称は?' },
   { id:'photo2name',  label:'写真 → 名称',       qSide:'photo',  aSide:'name', qLabel:'この器具の名称は?' },
   { id:'desc2name',   label:'役割 → 名称',       qSide:'desc',   aSide:'name', qLabel:'次の役割を持つ器具は?' },
-  { id:'name2symbol', label:'名称 → 配線図記号', qSide:'name',   aSide:'symbol', qLabel:'この配線図記号は?' },
-  { id:'name2photo',  label:'名称 → 写真',       qSide:'name',   aSide:'photo', qLabel:'この写真は?' },
   { id:'name2desc',   label:'名称 → 役割',       qSide:'name',   aSide:'desc', qLabel:'この役割は?' },
 ];
 function modeById(id){ return QUESTION_MODES.find(m=>m.id===id); }
@@ -1107,6 +1104,13 @@ function screenCardDetail(params){
 
   const rec = LEARNING[card.id] || newLearningRecord();
 
+  // 名称(編集可能)
+  s.appendChild(h('div',{class:'section-label'},'名称'));
+  s.appendChild(h('input',{class:'text-input', type:'text', value:card.name,
+    oninput:(e)=>{ card.name = e.target.value; },
+    onchange:async()=>{ await saveNameOrDescription(card); }
+  }));
+
   // 写真
   const photoBox = h('div',{class:'upload-slot'+(card.photoImage?' filled':'')}, card.photoImage ? '写真: 登録済み(タップで差し替え)' : '写真をアップロード');
   const photoImgWrap = h('div',{});
@@ -1125,8 +1129,12 @@ function screenCardDetail(params){
   s.appendChild(symBox);
   renderExistingImage(symImgWrap, card, 'symbol');
 
+  // 役割・用途(編集可能)
   s.appendChild(h('div',{class:'section-label'},'役割・用途'));
-  s.appendChild(h('div',{class:'panel'}, card.description || '(未登録)'));
+  s.appendChild(h('textarea',{class:'text-input', rows:4, placeholder:'役割・用途を入力',
+    oninput:(e)=>{ card.description = e.target.value; },
+    onchange:async()=>{ await saveNameOrDescription(card); }
+  }, card.description || ''));
 
   s.appendChild(h('div',{class:'section-label'},'学習状況'));
   const cls = ReviewScheduler.classify(rec);
@@ -1158,6 +1166,17 @@ function screenCardDetail(params){
   root.appendChild(s);
   return root;
 }
+async function saveNameOrDescription(card){
+  if(!card.name || !card.name.trim()){
+    showToast('名称は空にできません');
+    card.name = card.name && card.name.trim() ? card.name.trim() : card.name;
+  }
+  card.updatedAt = new Date().toISOString();
+  await saveCards();
+  showToast('保存しました');
+  render();
+}
+
 async function renderExistingImage(wrap, card, kind){
   const img = await getImage(card.id, kind);
   wrap.innerHTML = '';
