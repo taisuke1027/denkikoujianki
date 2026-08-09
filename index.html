@@ -421,6 +421,9 @@ async function loadAll(){
   CARDS = await storeGetJSON('cards', []);
   LEARNING = await storeGetJSON('learning', {});
   SETTINGS = Object.assign({...DEFAULT_SETTINGS}, await storeGetJSON('settings', {}));
+  // 2回目以降の起動: cards_data.js が更新されていれば、ユーザーが編集していない
+  // プリインストールカードだけを最新内容に同期する(学習履歴・ユーザーの編集は保持したまま)
+  await syncDefaultDeck();
 }
 async function installDefaultDeckIfAvailable(){
   if(typeof window.DEFAULT_CARDS === 'undefined') { await storeSetJSON('cards', []); return; }
@@ -432,9 +435,68 @@ async function installDefaultDeckIfAvailable(){
     for(let i=0;i<keys.length;i++){
       await storeSetText(keys[i], images[keys[i]]);
     }
+    await storeSetJSON('default_deck_version', window.DEFAULT_DECK_VERSION || 0);
   }catch(e){
     console.error('デフォルトカードの初期化に失敗しました', e);
     await storeSetJSON('cards', []);
+  }
+}
+async function syncDefaultDeck(){
+  if(typeof window.DEFAULT_CARDS === 'undefined') return;
+  const newVersion = window.DEFAULT_DECK_VERSION || 0;
+  const currentVersion = await storeGetJSON('default_deck_version', 0);
+  if(currentVersion >= newVersion) return; // 更新なし
+  try{
+    const images = window.DEFAULT_IMAGES || {};
+    const byId = {};
+    CARDS.forEach(c=>{ byId[c.id] = c; });
+    let addedCount = 0, updatedCount = 0;
+    for(const defCard of window.DEFAULT_CARDS){
+      const existingCard = byId[defCard.id];
+      if(!existingCard){
+        // GitHub側で新しく追加されたプリインストールカード
+        const clone = JSON.parse(JSON.stringify(defCard));
+        CARDS.push(clone);
+        byId[clone.id] = clone;
+        if(clone.photoImage && images[`img:${clone.id}:photo`]) await storeSetText(`img:${clone.id}:photo`, images[`img:${clone.id}:photo`]);
+        if(clone.symbolImage && images[`img:${clone.id}:symbol`]) await storeSetText(`img:${clone.id}:symbol`, images[`img:${clone.id}:symbol`]);
+        addedCount++;
+        continue;
+      }
+      // ユーザーが名称・役割・画像を編集済み(updatedAt が createdAt と異なる)カードは上書きしない
+      const untouched = existingCard.updatedAt === existingCard.createdAt;
+      if(!untouched) continue;
+      existingCard.name = defCard.name;
+      existingCard.category = defCard.category;
+      existingCard.tags = defCard.tags;
+      existingCard.difficulty = defCard.difficulty;
+      existingCard.description = defCard.description;
+      existingCard.photoImage = defCard.photoImage;
+      existingCard.symbolImage = defCard.symbolImage;
+      existingCard.updatedAt = defCard.updatedAt;
+      if(defCard.photoImage && images[`img:${defCard.id}:photo`]){
+        await storeSetText(`img:${defCard.id}:photo`, images[`img:${defCard.id}:photo`]);
+        IMAGE_CACHE[`${defCard.id}:photo`] = images[`img:${defCard.id}:photo`];
+      } else if(!defCard.photoImage){
+        await storeDelete(`img:${defCard.id}:photo`);
+        delete IMAGE_CACHE[`${defCard.id}:photo`];
+      }
+      if(defCard.symbolImage && images[`img:${defCard.id}:symbol`]){
+        await storeSetText(`img:${defCard.id}:symbol`, images[`img:${defCard.id}:symbol`]);
+        IMAGE_CACHE[`${defCard.id}:symbol`] = images[`img:${defCard.id}:symbol`];
+      } else if(!defCard.symbolImage){
+        await storeDelete(`img:${defCard.id}:symbol`);
+        delete IMAGE_CACHE[`${defCard.id}:symbol`];
+      }
+      updatedCount++;
+    }
+    await saveCards();
+    await storeSetJSON('default_deck_version', newVersion);
+    if(addedCount || updatedCount){
+      console.log(`プリインストールカードを更新しました(追加:${addedCount}件 / 更新:${updatedCount}件)`);
+    }
+  }catch(e){
+    console.error('デフォルトカードの同期に失敗しました', e);
   }
 }
 async function saveCards(){ await storeSetJSON('cards', CARDS); }
@@ -674,7 +736,7 @@ function buildQueue(cardPool, count, fixedModeId){
 let ROUTE = {screen:'home', params:{}};
 const HISTORY_STACK = [];
 function nav(screen, params={}, replace=false){
-  if(!replace) HISTORY_STACK.push(ROUTE);
+  if(!replace) HISTORY_STACK.push({...ROUTE, _scrollY: window.scrollY});
   ROUTE = {screen, params};
   render();
   window.scrollTo(0,0);
@@ -682,7 +744,59 @@ function nav(screen, params={}, replace=false){
 function navBack(){
   const prev = HISTORY_STACK.pop();
   ROUTE = prev || {screen:'home', params:{}};
+  const restoreY = (prev && prev._scrollY) || 0;
   render();
+  // カード一覧などのリストは非同期でサムネイルを描画するため、
+  // 描画がある程度進んでからスクロール位置を復元する
+  setTimeout(()=> window.scrollTo(0, restoreY), 30);
+  setTimeout(()=> window.scrollTo(0, restoreY), 120);
+}
+
+/* 画面全体の右スワイプで前の画面に戻る(カード詳細画面などで使用) */
+function attachSwipeBack(el){
+  if(!el) return;
+  let startX=0, startY=0, tracking=false, engaged=false;
+  function onStart(x,y,target){
+    if(target && target.closest && target.closest('input, textarea, button, .upload-slot, .navbtn')){
+      tracking=false; return;
+    }
+    startX=x; startY=y; tracking=true; engaged=false;
+  }
+  function onMove(x,y,evt){
+    if(!tracking) return;
+    const dx = x-startX, dy = y-startY;
+    if(!engaged){
+      if(Math.abs(dx) > 10 || Math.abs(dy) > 10){
+        if(Math.abs(dx) > Math.abs(dy)*1.5 && dx > 0){ engaged = true; }
+        else { tracking = false; return; }
+      } else return;
+    }
+    if(engaged){
+      if(evt && evt.cancelable) evt.preventDefault();
+      const clamped = Math.max(0, dx);
+      el.style.transform = `translateX(${clamped}px)`;
+      el.style.opacity = String(Math.max(0.4, 1 - clamped/400));
+    }
+  }
+  function onEnd(x){
+    if(engaged){
+      const dx = x-startX;
+      el.style.transition = 'transform .2s ease, opacity .2s ease';
+      if(dx > 90){
+        el.style.transform = 'translateX(100%)';
+        el.style.opacity = '0';
+        setTimeout(()=>{ navBack(); }, 150);
+      } else {
+        el.style.transform = '';
+        el.style.opacity = '';
+        setTimeout(()=>{ el.style.transition=''; }, 200);
+      }
+    }
+    tracking = false; engaged = false;
+  }
+  el.addEventListener('touchstart', e=>{ const t=e.touches[0]; onStart(t.clientX, t.clientY, e.target); }, {passive:true});
+  el.addEventListener('touchmove', e=>{ const t=e.touches[0]; onMove(t.clientX, t.clientY, e); }, {passive:false});
+  el.addEventListener('touchend', e=>{ onEnd(e.changedTouches[0].clientX); });
 }
 
 function showToast(msg){
@@ -1097,7 +1211,7 @@ async function saveNewCard(){
 
 function screenCardDetail(params){
   const card = CARDS.find(c=>c.id===params.id);
-  const root = h('div',{});
+  const root = h('div',{id:'carddetail-root'});
   root.appendChild(topbar(card ? card.name : 'カード詳細', null, true));
   const s = h('div',{class:'screen'});
   if(!card){ s.appendChild(h('div',{class:'empty-state'},'カードが見つかりません')); root.appendChild(s); return root; }
@@ -1164,6 +1278,7 @@ function screenCardDetail(params){
   }
 
   root.appendChild(s);
+  setTimeout(()=> attachSwipeBack(document.getElementById('carddetail-root')), 0);
   return root;
 }
 async function saveNameOrDescription(card){
