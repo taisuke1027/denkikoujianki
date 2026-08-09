@@ -712,24 +712,42 @@ function priorityScore(card){
 }
 function sameDay(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
 
+// 出題に必要なデータ(名称/写真/配線図記号/役割)が実際に登録されているかを判定
+function cardHasSide(card, side){
+  if(side === 'name') return !!(card.name && card.name.trim());
+  if(side === 'desc') return !!(card.description && card.description.trim());
+  if(side === 'photo') return !!card.photoImage;
+  if(side === 'symbol') return !!card.symbolImage;
+  return false;
+}
+function cardHasModeData(card, mode){
+  return cardHasSide(card, mode.qSide) && cardHasSide(card, mode.aSide);
+}
+function validModesForCard(card){
+  return QUESTION_MODES.filter(m => SETTINGS.enabledModes[m.id] !== false && cardHasModeData(card, m));
+}
 function pickModeForCard(card){
-  const enabled = QUESTION_MODES.filter(m => SETTINGS.enabledModes[m.id] !== false).filter(m=>{
-    // 記号/写真が未登録の場合はそのモードを除外
-    if(m.qSide==='symbol' || m.aSide==='symbol') return !!card.symbolImage;
-    if(m.qSide==='photo' || m.aSide==='photo') return !!card.photoImage;
-    return true;
-  });
-  if(!enabled.length) return QUESTION_MODES[2]; // fallback: desc2name
+  const enabled = validModesForCard(card);
+  if(!enabled.length) return null; // このカードで出題できる方向が1つもない
   return enabled[Math.floor(Math.random()*enabled.length)];
 }
 
 function buildQueue(cardPool, count, fixedModeId){
-  const sorted = [...cardPool].sort((a,b)=> priorityScore(b) - priorityScore(a));
+  let usablePool;
+  let fixedMode = null;
+  if(fixedModeId){
+    fixedMode = modeById(fixedModeId);
+    // 指定された出題方向に必要なデータ(写真・記号・役割)が揃っているカードのみ対象にする
+    usablePool = cardPool.filter(c => cardHasModeData(c, fixedMode));
+  } else {
+    // 少なくとも1つの出題方向が成立するカードのみ対象にする
+    usablePool = cardPool.filter(c => validModesForCard(c).length > 0);
+  }
+  const sorted = [...usablePool].sort((a,b)=> priorityScore(b) - priorityScore(a));
   const chosen = count === Infinity ? sorted : sorted.slice(0, count);
-  return chosen.map(card => ({
-    card,
-    mode: fixedModeId ? modeById(fixedModeId) : pickModeForCard(card)
-  }));
+  return chosen
+    .map(card => ({ card, mode: fixedMode || pickModeForCard(card) }))
+    .filter(item => item.mode);
 }
 
 /* =========================================================================
@@ -1556,18 +1574,6 @@ function screenStudy(){
 
   if(SESSION.revealed) renderAnswer(answerWrap, card, mode);
 
-  fc.addEventListener('click', (e)=>{
-    if(SESSION._dragging) return;
-    if(!SESSION.revealed){
-      SESSION.revealed = true;
-      renderAnswer(answerWrap, card, mode);
-      const hint = fc.querySelector('.fc-hint'); if(hint) hint.remove();
-    }
-  });
-
-  stage.appendChild(fc);
-  s.appendChild(stage);
-
   const judgeRow = h('div',{class:'judge-row'});
   const wrongBtn = h('button',{class:'judge-btn incorrect', onclick:()=>judge(false)},[
     h('div',{class:'arrow-ico'},'←'), h('div',{class:'txt'},'不正解')
@@ -1575,7 +1581,27 @@ function screenStudy(){
   const rightBtn = h('button',{class:'judge-btn correct', onclick:()=>judge(true)},[
     h('div',{class:'arrow-ico'},'→'), h('div',{class:'txt'},'正解')
   ]);
-  if(!SESSION.revealed){ wrongBtn.style.opacity='0.35'; rightBtn.style.opacity='0.35'; wrongBtn.style.pointerEvents='none'; rightBtn.style.pointerEvents='none'; }
+  function setJudgeEnabled(enabled){
+    wrongBtn.style.opacity = enabled ? '' : '0.35';
+    rightBtn.style.opacity = enabled ? '' : '0.35';
+    wrongBtn.style.pointerEvents = enabled ? '' : 'none';
+    rightBtn.style.pointerEvents = enabled ? '' : 'none';
+  }
+  setJudgeEnabled(SESSION.revealed);
+
+  fc.addEventListener('click', (e)=>{
+    if(SESSION._dragging) return;
+    if(!SESSION.revealed){
+      SESSION.revealed = true;
+      renderAnswer(answerWrap, card, mode);
+      const hint = fc.querySelector('.fc-hint'); if(hint) hint.remove();
+      setJudgeEnabled(true);
+    }
+  });
+
+  stage.appendChild(fc);
+  s.appendChild(stage);
+
   judgeRow.appendChild(wrongBtn); judgeRow.appendChild(rightBtn);
   s.appendChild(judgeRow);
 
@@ -1810,6 +1836,7 @@ function screenSettings(){
   dataPanel.appendChild(importBtn);
   s.appendChild(dataPanel);
   s.appendChild(h('button',{class:'btn', onclick:()=>nav('import')}, '📄 CSVインポート画面へ'));
+  s.appendChild(h('button',{class:'btn', onclick:exportCardsCSV}, '⬆ カード内容をCSVで書き出す'));
 
   s.appendChild(h('div',{class:'section-label'},'アプリ情報'));
   s.appendChild(h('div',{class:'panel'},[
@@ -1837,6 +1864,34 @@ async function exportBackup(){
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
   showToast('バックアップを書き出しました');
+}
+function csvEscape(v){
+  const s = String(v === undefined || v === null ? '' : v);
+  if(/[",\n\r]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+  return s;
+}
+function exportCardsCSV(){
+  if(!CARDS.length){ showToast('書き出せるカードがありません'); return; }
+  // インポート画面と同じ列構成(id,name,category,tags,difficulty,description,symbolImageFile,photoImageFile)。
+  // 画像本体はCSVに含められないため、symbolImageFile/photoImageFileは空欄で出力する
+  // (これらの列を空のまま再インポートしても、既存カードの画像登録状況は保持される)。
+  const headers = ['id','name','category','tags','difficulty','description','symbolImageFile','photoImageFile'];
+  const lines = [headers.join(',')];
+  CARDS.forEach(c=>{
+    const row = [
+      c.id, c.name || '', c.category || '', (c.tags||[]).join('|'),
+      c.difficulty != null ? c.difficulty : 2, c.description || '', '', ''
+    ];
+    lines.push(row.map(csvEscape).join(','));
+  });
+  const csv = '\uFEFF' + lines.join('\r\n'); // BOM付き(Excelで開いても文字化けしないように)
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `electrician_flashcards_${Date.now()}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  showToast(`CSVを書き出しました(${CARDS.length}件)`);
 }
 async function importBackup(e){
   const file = e.target.files[0];
