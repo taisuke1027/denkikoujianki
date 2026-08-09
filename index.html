@@ -423,6 +423,8 @@ async function loadAll(){
   CARDS = await storeGetJSON('cards', []);
   LEARNING = await storeGetJSON('learning', {});
   SETTINGS = Object.assign({...DEFAULT_SETTINGS}, await storeGetJSON('settings', {}));
+  // 既存カードが持つカテゴリを選択肢に反映(前回セッションで追加したカテゴリも復元される)
+  CARDS.forEach(c=>{ if(c.category && !CATEGORY_LIST.includes(c.category)) CATEGORY_LIST.push(c.category); });
   // 2回目以降の起動: cards_data.js が更新されていれば、ユーザーが編集していない
   // プリインストールカードだけを最新内容に同期する(学習履歴・ユーザーの編集は保持したまま)
   await syncDefaultDeck();
@@ -1273,6 +1275,36 @@ function screenCardDetail(params){
     onchange:async()=>{ await saveNameOrDescription(card); }
   }));
 
+  // カテゴリ(リストから選択・新規追加も可能)
+  s.appendChild(h('div',{class:'section-label'},'カテゴリ'));
+  const catChips = h('div',{class:'chip-row'});
+  CATEGORY_LIST.forEach(cat=>{
+    catChips.appendChild(h('button',{class:'chip'+(card.category===cat?' active':''), onclick:async()=>{
+      if(card.category === cat) return;
+      card.category = cat;
+      await persistCardChange(card, 'カテゴリを変更しました');
+    }}, cat));
+  });
+  s.appendChild(catChips);
+  if(!CATEGORY_ADD_MODE){
+    s.appendChild(h('button',{class:'btn ghost', onclick:()=>{ CATEGORY_ADD_MODE = true; render(); }}, '＋ 新しいカテゴリを追加'));
+  } else {
+    s.appendChild(h('input',{class:'text-input', type:'text', placeholder:'新しいカテゴリ名', value:CATEGORY_ADD_TEXT,
+      oninput:(e)=>{ CATEGORY_ADD_TEXT = e.target.value; }
+    }));
+    const catBtnRow = h('div',{class:'btn-row'});
+    catBtnRow.appendChild(h('button',{class:'btn primary', onclick:async()=>{
+      const name = CATEGORY_ADD_TEXT.trim();
+      if(!name){ showToast('カテゴリ名を入力してください'); return; }
+      if(!CATEGORY_LIST.includes(name)) CATEGORY_LIST.push(name);
+      card.category = name;
+      CATEGORY_ADD_MODE = false; CATEGORY_ADD_TEXT = '';
+      await persistCardChange(card, 'カテゴリを追加しました');
+    }}, '追加して選択'));
+    catBtnRow.appendChild(h('button',{class:'btn', onclick:()=>{ CATEGORY_ADD_MODE = false; CATEGORY_ADD_TEXT = ''; render(); }}, 'キャンセル'));
+    s.appendChild(catBtnRow);
+  }
+
   // 写真
   const photoBox = h('div',{class:'upload-slot'+(card.photoImage?' filled':'')}, card.photoImage ? '写真: 登録済み(タップで差し替え)' : '写真をアップロード');
   const photoImgWrap = h('div',{});
@@ -1309,7 +1341,6 @@ function screenCardDetail(params){
     ['学習回数', rec.reviewCount+'回'],
     ['連続正解', rec.correctStreak+'回'],
     ['次回復習', rec.nextReviewAt ? new Date(rec.nextReviewAt).toLocaleDateString('ja-JP') : '-'],
-    ['カテゴリ', card.category],
   ].forEach(([k,v])=> statPanel.appendChild(h('div',{class:'kv-row'},[h('span',{class:'k'},k), h('span',{class:'v'},String(v))])));
   s.appendChild(statPanel);
 
@@ -1337,6 +1368,14 @@ async function saveNameOrDescription(card){
   card.updatedAt = new Date().toISOString();
   await saveCards();
   showToast('保存しました');
+  render();
+}
+let CATEGORY_ADD_MODE = false;
+let CATEGORY_ADD_TEXT = '';
+async function persistCardChange(card, msg){
+  card.updatedAt = new Date().toISOString();
+  await saveCards();
+  if(msg) showToast(msg);
   render();
 }
 
@@ -1838,6 +1877,21 @@ function screenSettings(){
   s.appendChild(h('button',{class:'btn', onclick:()=>nav('import')}, '📄 CSVインポート画面へ'));
   s.appendChild(h('button',{class:'btn', onclick:exportCardsCSV}, '⬆ カード内容をCSVで書き出す'));
 
+  s.appendChild(h('div',{class:'section-label'},'危険な操作'));
+  const dangerPanel = h('div',{class:'panel'});
+  dangerPanel.appendChild(h('div',{style:'font-size:12px;color:var(--ink-dim);margin-bottom:10px;line-height:1.6;'},
+    '正解率・連続正解数・復習予定日などの学習記録をすべて削除し、全カードを「未学習」の状態に戻します。カード自体(名称・写真・役割・配線図記号)は削除されません。この操作は取り消せません。'));
+  if(!RESET_CONFIRM_MODE){
+    dangerPanel.appendChild(h('button',{class:'btn', style:'color:var(--danger);border-color:rgba(192,69,58,0.4);', onclick:()=>{ RESET_CONFIRM_MODE = true; render(); }}, '🗑 学習履歴をリセット'));
+  } else {
+    dangerPanel.appendChild(h('div',{style:'font-size:13px;color:var(--danger);font-weight:700;margin-bottom:10px;'}, '本当にリセットしますか?この操作は取り消せません。'));
+    const confirmRow = h('div',{class:'btn-row'});
+    confirmRow.appendChild(h('button',{class:'btn', style:'background:var(--danger);border-color:var(--danger);color:#fff;', onclick:resetLearningHistory}, '削除する'));
+    confirmRow.appendChild(h('button',{class:'btn', onclick:()=>{ RESET_CONFIRM_MODE = false; render(); }}, 'キャンセル'));
+    dangerPanel.appendChild(confirmRow);
+  }
+  s.appendChild(dangerPanel);
+
   s.appendChild(h('div',{class:'section-label'},'アプリ情報'));
   s.appendChild(h('div',{class:'panel'},[
     h('div',{class:'kv-row'},[h('span',{class:'k'},'カード枚数'), h('span',{class:'v'}, CARDS.length+'枚')]),
@@ -1847,6 +1901,14 @@ function screenSettings(){
   s.appendChild(bottomNav('settings'));
   root.appendChild(s);
   return root;
+}
+let RESET_CONFIRM_MODE = false;
+async function resetLearningHistory(){
+  LEARNING = {};
+  await saveLearning();
+  RESET_CONFIRM_MODE = false;
+  showToast('学習履歴をリセットしました');
+  render();
 }
 async function exportBackup(){
   const images = {};
