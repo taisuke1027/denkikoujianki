@@ -224,6 +224,8 @@ textarea.text-input{resize:vertical;font-family:var(--font-mono);font-size:12px;
 .fc-answer .a-name{font-family:var(--font-display);font-weight:900;font-size:22px;margin-top:4px;}
 .fc-answer .a-media{margin-top:10px;display:flex;justify-content:center;}
 .fc-answer .a-media img{max-height:120px;max-width:100%;object-fit:contain;}
+.fc-answer .a-media.symbol img{background:#fff;border-radius:10px;padding:10px;border:1px solid rgba(0,0,0,0.08);max-height:100px;}
+.fc-answer .a-sublabel{font-family:var(--font-mono);font-size:10px;color:#a8987a;letter-spacing:.08em;text-transform:uppercase;margin-top:12px;}
 .fc-answer .a-desc{font-size:13.5px;color:#5a6270;margin-top:8px;line-height:1.6;}
 
 .swipe-flash{
@@ -1053,6 +1055,7 @@ function screenUnlearned(){
    SCREEN: CARD LIST + DETAIL
    ========================================================================= */
 let CARDLIST_QUERY = '';
+let CARDLIST_FILTERS = { name:false, photo:false, desc:false, symbol:false };
 function cardListItem(card){
   const rec = LEARNING[card.id];
   const cls = ReviewScheduler.classify(rec);
@@ -1063,7 +1066,7 @@ function cardListItem(card){
   item.appendChild(thumb);
   loadThumb(thumb, card);
   item.appendChild(h('div',{class:'cli-body'},[
-    h('div',{class:'cli-name'}, card.name),
+    h('div',{class:'cli-name'}, card.name || '(名称未登録)'),
     h('div',{class:'cli-meta'}, card.category)
   ]));
   item.appendChild(h('span',{class:'badge '+cls}, clsLabel));
@@ -1087,6 +1090,22 @@ function screenCardList(){
     oninput:(e)=>{ CARDLIST_QUERY = e.target.value; renderCardListResults(); }});
   searchRow.appendChild(input);
   s.appendChild(searchRow);
+
+  s.appendChild(h('div',{class:'section-label'}, '未登録の項目で絞り込み'));
+  const filterRow = h('div',{class:'chip-row'});
+  [
+    ['name','名称未登録のみ表示'],
+    ['photo','写真未登録のみ表示'],
+    ['desc','役割未登録のみ表示'],
+    ['symbol','配線図記号未登録のみ表示'],
+  ].forEach(([key,label])=>{
+    filterRow.appendChild(h('button',{class:'chip'+(CARDLIST_FILTERS[key]?' active':''), onclick:()=>{
+      CARDLIST_FILTERS[key] = !CARDLIST_FILTERS[key];
+      render();
+    }}, label));
+  });
+  s.appendChild(filterRow);
+
   s.appendChild(h('button',{class:'btn primary', onclick:()=>nav('addcard')}, '＋ 新規カードを追加'));
   const results = h('div',{class:'mode-list', id:'cardlist-results'});
   s.appendChild(results);
@@ -1100,7 +1119,18 @@ function renderCardListResults(){
   if(!results) return;
   results.innerHTML = '';
   const q = CARDLIST_QUERY.trim().toLowerCase();
-  const filtered = CARDS.filter(c => !q || c.name.toLowerCase().includes(q) || c.category.toLowerCase().includes(q) || (c.tags||[]).some(t=>t.toLowerCase().includes(q)));
+  const f = CARDLIST_FILTERS;
+  const anyFilterActive = f.name || f.photo || f.desc || f.symbol;
+  const filtered = CARDS.filter(c => {
+    const searchMatch = !q || c.name.toLowerCase().includes(q) || c.category.toLowerCase().includes(q) || (c.tags||[]).some(t=>t.toLowerCase().includes(q));
+    if(!searchMatch) return false;
+    if(!anyFilterActive) return true;
+    const missingName = !c.name || !c.name.trim();
+    const missingPhoto = !c.photoImage;
+    const missingDesc = !c.description || !c.description.trim();
+    const missingSymbol = !c.symbolImage;
+    return (f.name && missingName) || (f.photo && missingPhoto) || (f.desc && missingDesc) || (f.symbol && missingSymbol);
+  });
   if(!filtered.length){ results.appendChild(h('div',{class:'empty-state'}, '該当するカードがありません')); return; }
   filtered.forEach(c=> results.appendChild(cardListItem(c)));
 }
@@ -1553,25 +1583,46 @@ function screenStudy(){
   setTimeout(()=> attachSwipe(document.getElementById('flashcard')), 0);
   return root;
 }
+// 出題方向(qSide)ごとに、回答表示で見せるべき項目を定義。
+// 「登録されている部分だけ表示」の判定は呼び出し側(renderAnswer)で行う。
+function answerFieldsForMode(qSide){
+  switch(qSide){
+    case 'symbol': return ['name','photo'];        // 配線図記号の出題 → 名称+写真
+    case 'desc':   return ['name','photo'];        // 役割の出題       → 名称+写真
+    case 'photo':  return ['name','symbol'];       // 写真の出題       → 名称+配線図記号
+    case 'name':   return ['photo','desc','symbol']; // 名称の出題      → 写真+役割+配線図記号
+    default:       return ['name'];
+  }
+}
 function renderAnswer(wrap, card, mode){
   wrap.innerHTML = '';
   wrap.appendChild(h('div',{class:'fc-divider'}));
   const box = h('div',{class:'fc-answer'});
   box.appendChild(h('div',{class:'a-label'}, '答え'));
-  const aContent = sideContent(card, mode.aSide);
-  if(aContent.type==='text'){
-    box.appendChild(h('div',{class: mode.aSide==='name' ? 'a-name' : 'a-desc', style: mode.aSide==='desc' ? 'font-size:15px;margin-top:4px;' : ''}, aContent.value));
-  } else {
-    const mwrap = h('div',{class:'a-media'});
-    const img = h('img',{alt:''});
-    mwrap.appendChild(img);
-    getImage(card.id, aContent.kind).then(src=>{ if(src) img.src = src; });
-    box.appendChild(mwrap);
-    box.appendChild(h('div',{class:'a-name', style:'font-size:17px;margin-top:8px;'}, card.name));
-  }
-  if(mode.aSide !== 'desc' && card.description){
-    box.appendChild(h('div',{class:'a-desc'}, '役割: ' + card.description));
-  }
+
+  const fields = answerFieldsForMode(mode.qSide);
+  fields.forEach(field=>{
+    if(field === 'name'){
+      box.appendChild(h('div',{class:'a-name'}, card.name));
+    } else if(field === 'photo' && card.photoImage){
+      box.appendChild(h('div',{class:'a-sublabel'}, '写真'));
+      const mwrap = h('div',{class:'a-media'});
+      const img = h('img',{alt:''});
+      mwrap.appendChild(img);
+      getImage(card.id, 'photo').then(src=>{ if(src) img.src = src; });
+      box.appendChild(mwrap);
+    } else if(field === 'symbol' && card.symbolImage){
+      box.appendChild(h('div',{class:'a-sublabel'}, '配線図記号'));
+      const mwrap = h('div',{class:'a-media symbol'});
+      const img = h('img',{alt:''});
+      mwrap.appendChild(img);
+      getImage(card.id, 'symbol').then(src=>{ if(src) img.src = src; });
+      box.appendChild(mwrap);
+    } else if(field === 'desc' && card.description){
+      box.appendChild(h('div',{class:'a-sublabel'}, '役割・用途'));
+      box.appendChild(h('div',{class:'a-desc'}, card.description));
+    }
+  });
   wrap.appendChild(box);
 }
 
