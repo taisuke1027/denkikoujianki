@@ -59,6 +59,13 @@ body{
 }
 .topbar .title{font-family:var(--font-display);font-weight:700;font-size:17px;letter-spacing:.02em;flex:1;}
 .topbar .title small{display:block;font-family:var(--font-mono);font-weight:400;font-size:10px;color:var(--ink-dim);letter-spacing:.08em;margin-top:1px;}
+.topbar .fav-btn{
+  width:34px;height:34px;border-radius:10px;border:1px solid var(--line);
+  background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;
+  color:var(--ink-dim);cursor:pointer;flex-shrink:0;
+}
+.topbar .fav-btn svg{width:19px;height:19px;}
+.topbar .fav-btn.active{color:var(--danger);border-color:rgba(192,69,58,0.4);background:rgba(192,69,58,0.12);}
 
 .screen{flex:1;display:flex;flex-direction:column;padding:16px 16px calc(90px + env(safe-area-inset-bottom,0px));gap:16px;animation:fadein .18s ease;}
 @keyframes fadein{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
@@ -615,6 +622,7 @@ async function importCSVText(text, logFn){
       description: r.description ? r.description.trim() : '',
       symbolImage: existing ? existing.symbolImage : null,
       photoImage: existing ? existing.photoImage : null,
+      favorite: existing ? existing.favorite : false,
       createdAt: existing ? existing.createdAt : now,
       updatedAt: now,
     };
@@ -854,13 +862,22 @@ const ICONS = {
   upload: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
 };
 
-function topbar(title, sub, showBack){
+function topbar(title, sub, showBack, trailing){
   const bar = h('div',{class:'topbar'});
   if(showBack) bar.appendChild(h('button',{class:'back', onclick:()=>navBack()}, '‹'));
   const t = h('div',{class:'title'}, title);
   if(sub) t.appendChild(h('small',{}, sub));
   bar.appendChild(t);
+  if(trailing) bar.appendChild(trailing);
   return bar;
+}
+function favoriteButton(card){
+  const active = !!card.favorite;
+  const heartSVG = `<svg viewBox="0 0 24 24" fill="${active?'currentColor':'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>`;
+  return h('button',{class:'fav-btn'+(active?' active':''), html:heartSVG, onclick:async()=>{
+    card.favorite = !card.favorite;
+    await persistCardChange(card, card.favorite ? 'お気に入りに追加しました' : 'お気に入りを解除しました');
+  }});
 }
 
 function bottomNav(active){
@@ -1076,6 +1093,7 @@ function screenUnlearned(){
    ========================================================================= */
 let CARDLIST_QUERY = '';
 let CARDLIST_FILTERS = { name:false, photo:false, desc:false, symbol:false };
+let CARDLIST_FAV_FILTER = null; // null | 'fav' | 'nonfav'
 function cardListItem(card){
   const rec = LEARNING[card.id];
   const cls = ReviewScheduler.classify(rec);
@@ -1085,8 +1103,12 @@ function cardListItem(card){
   if(card.photoImage) thumb.appendChild(h('img',{src:'', alt:''}));
   item.appendChild(thumb);
   loadThumb(thumb, card);
+  const nameRow = h('div',{class:'cli-name', style:'display:flex;align-items:center;gap:5px;'},[
+    h('span',{}, card.name || '(名称未登録)')
+  ]);
+  if(card.favorite) nameRow.appendChild(h('span',{style:'color:var(--danger);font-size:12px;'}, '♥'));
   item.appendChild(h('div',{class:'cli-body'},[
-    h('div',{class:'cli-name'}, card.name || '(名称未登録)'),
+    nameRow,
     h('div',{class:'cli-meta'}, card.category)
   ]));
   item.appendChild(h('span',{class:'badge '+cls}, clsLabel));
@@ -1110,6 +1132,18 @@ function screenCardList(){
     oninput:(e)=>{ CARDLIST_QUERY = e.target.value; renderCardListResults(); }});
   searchRow.appendChild(input);
   s.appendChild(searchRow);
+
+  s.appendChild(h('div',{class:'section-label'}, 'お気に入りで絞り込み'));
+  const favRow = h('div',{class:'chip-row'});
+  favRow.appendChild(h('button',{class:'chip'+(CARDLIST_FAV_FILTER==='fav'?' active':''), onclick:()=>{
+    CARDLIST_FAV_FILTER = CARDLIST_FAV_FILTER === 'fav' ? null : 'fav';
+    render();
+  }}, '♥ お気に入りのみ表示'));
+  favRow.appendChild(h('button',{class:'chip'+(CARDLIST_FAV_FILTER==='nonfav'?' active':''), onclick:()=>{
+    CARDLIST_FAV_FILTER = CARDLIST_FAV_FILTER === 'nonfav' ? null : 'nonfav';
+    render();
+  }}, 'お気に入り以外のみ表示'));
+  s.appendChild(favRow);
 
   s.appendChild(h('div',{class:'section-label'}, '未登録の項目で絞り込み'));
   const filterRow = h('div',{class:'chip-row'});
@@ -1144,6 +1178,8 @@ function renderCardListResults(){
   const filtered = CARDS.filter(c => {
     const searchMatch = !q || c.name.toLowerCase().includes(q) || c.category.toLowerCase().includes(q) || (c.tags||[]).some(t=>t.toLowerCase().includes(q));
     if(!searchMatch) return false;
+    if(CARDLIST_FAV_FILTER === 'fav' && !c.favorite) return false;
+    if(CARDLIST_FAV_FILTER === 'nonfav' && c.favorite) return false;
     if(!anyFilterActive) return true;
     const missingName = !c.name || !c.name.trim();
     const missingPhoto = !c.photoImage;
@@ -1247,7 +1283,7 @@ async function saveNewCard(){
   const card = {
     id, name:st.name.trim(), category:st.category||'その他', tags,
     difficulty: st.difficulty||2, description: st.description ? st.description.trim() : '',
-    symbolImage: !!st.symbolDataUrl, photoImage: !!st.photoDataUrl,
+    symbolImage: !!st.symbolDataUrl, photoImage: !!st.photoDataUrl, favorite: false,
     createdAt: now, updatedAt: now,
   };
   CARDS.push(card);
@@ -1262,7 +1298,7 @@ async function saveNewCard(){
 function screenCardDetail(params){
   const card = CARDS.find(c=>c.id===params.id);
   const root = h('div',{id:'carddetail-root'});
-  root.appendChild(topbar(card ? card.name : 'カード詳細', null, true));
+  root.appendChild(topbar(card ? card.name : 'カード詳細', null, true, card ? favoriteButton(card) : null));
   const s = h('div',{class:'screen'});
   if(!card){ s.appendChild(h('div',{class:'empty-state'},'カードが見つかりません')); root.appendChild(s); return root; }
 
