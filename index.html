@@ -2002,6 +2002,8 @@ async function importBackup(e){
     LEARNING = backup.learning || {};
     SETTINGS = Object.assign({...DEFAULT_SETTINGS}, backup.settings||{});
     await saveCards(); await saveLearning(); await saveSettings();
+    // 復元したカードが持つカテゴリを選択肢に反映(追加済みカスタムカテゴリも復元後すぐ選べるように)
+    CARDS.forEach(c=>{ if(c.category && !CATEGORY_LIST.includes(c.category)) CATEGORY_LIST.push(c.category); });
     if(backup.images){
       for(const [k,v] of Object.entries(backup.images)){
         await storeSetText(k, v);
