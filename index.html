@@ -1297,6 +1297,12 @@ async function saveNewCard(){
 
 function screenCardDetail(params){
   const card = CARDS.find(c=>c.id===params.id);
+  if(CARD_DETAIL_LAST_ID !== params.id){
+    // 別のカードを開いたら、前のカードの確認状態(カテゴリ追加中・削除確認中など)をリセットする
+    CARD_DETAIL_LAST_ID = params.id;
+    CATEGORY_ADD_MODE = false; CATEGORY_ADD_TEXT = '';
+    DELETE_CONFIRM_MODE = false;
+  }
   const root = h('div',{id:'carddetail-root'});
   root.appendChild(topbar(card ? card.name : 'カード詳細', null, true, card ? favoriteButton(card) : null));
   const s = h('div',{class:'screen'});
@@ -1392,9 +1398,38 @@ function screenCardDetail(params){
     s.appendChild(modePanel);
   }
 
+  s.appendChild(h('div',{class:'section-label'},'危険な操作'));
+  const delPanel = h('div',{class:'panel'});
+  if(!DELETE_CONFIRM_MODE){
+    delPanel.appendChild(h('button',{class:'btn', style:'color:var(--danger);border-color:rgba(192,69,58,0.4);', onclick:()=>{ DELETE_CONFIRM_MODE = true; render(); }}, '🗑 このカードを削除'));
+  } else {
+    delPanel.appendChild(h('div',{style:'font-size:13px;color:var(--danger);font-weight:700;margin-bottom:10px;'}, `「${card.name}」を削除します。学習履歴も含めて完全に削除され、元に戻せません。`));
+    const delRow = h('div',{class:'btn-row'});
+    delRow.appendChild(h('button',{class:'btn', style:'background:var(--danger);border-color:var(--danger);color:#fff;', onclick:()=>deleteCard(card)}, '削除する'));
+    delRow.appendChild(h('button',{class:'btn', onclick:()=>{ DELETE_CONFIRM_MODE = false; render(); }}, 'キャンセル'));
+    delPanel.appendChild(delRow);
+  }
+  s.appendChild(delPanel);
+
   root.appendChild(s);
   setTimeout(()=> attachSwipeBack(document.getElementById('carddetail-root')), 0);
   return root;
+}
+let CARD_DETAIL_LAST_ID = null;
+let DELETE_CONFIRM_MODE = false;
+async function deleteCard(card){
+  const idx = CARDS.findIndex(c=>c.id===card.id);
+  if(idx !== -1) CARDS.splice(idx, 1);
+  delete LEARNING[card.id];
+  await saveCards();
+  await saveLearning();
+  await storeDelete(`img:${card.id}:photo`);
+  await storeDelete(`img:${card.id}:symbol`);
+  delete IMAGE_CACHE[`${card.id}:photo`];
+  delete IMAGE_CACHE[`${card.id}:symbol`];
+  DELETE_CONFIRM_MODE = false;
+  showToast('カードを削除しました');
+  navBack();
 }
 async function saveNameOrDescription(card){
   if(!card.name || !card.name.trim()){
