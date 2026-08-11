@@ -1725,7 +1725,7 @@ function answerFieldsForMode(qSide){
   switch(qSide){
     case 'symbol': return ['name','photo'];        // 配線図記号の出題 → 名称+写真
     case 'desc':   return ['name','photo'];        // 役割の出題       → 名称+写真
-    case 'photo':  return ['name','symbol'];       // 写真の出題       → 名称+配線図記号
+    case 'photo':  return ['name','symbol','desc']; // 写真の出題       → 名称+配線図記号+役割・用途
     case 'name':   return ['photo','desc','symbol']; // 名称の出題      → 写真+役割+配線図記号
     default:       return ['name'];
   }
