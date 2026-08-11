@@ -972,15 +972,9 @@ function screenHome(){
 
   s.appendChild(h('div',{class:'section-label'}, 'クイックスタート'));
   const quick = h('div',{class:'btn-row'});
-  quick.appendChild(h('button',{class:'btn', onclick:()=>startSession('omakase')},['🎯 おまかせ学習']));
+  quick.appendChild(h('button',{class:'btn', onclick:()=>nav('categories')},['🗂 カテゴリ別学習']));
   quick.appendChild(h('button',{class:'btn', onclick:()=>nav('modes')},['📋 モード選択']));
   s.appendChild(quick);
-
-  s.appendChild(h('div',{class:'section-label'}, '弱点対策'));
-  const weakRow = h('div',{class:'btn-row'});
-  weakRow.appendChild(h('button',{class:'btn', onclick:()=>nav('weak')},['😵 苦手カード']));
-  weakRow.appendChild(h('button',{class:'btn', onclick:()=>nav('unlearned')},['🆕 未学習カード']));
-  s.appendChild(weakRow);
 
   s.appendChild(bottomNav('home'));
   root.appendChild(s);
