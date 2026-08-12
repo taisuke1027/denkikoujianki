@@ -386,7 +386,7 @@ async function storeDelete(key){
    2. IN-MEMORY STATE (loaded from storage at boot)
 --------------------------------------------------------------------- */
 const DEFAULT_SETTINGS = {
-  questionCount: 10,          // 1回の出題数デフォルト
+  questionCount: 40,          // 1回の出題数デフォルト
   randomOrder: true,          // ランダム性を出題順に反映
   enabledModes: {             // 出題方向ごとの有効/無効(将来拡張しやすい構造)
     symbol2name:true, photo2name:true, desc2name:true, name2desc:true
@@ -595,7 +595,7 @@ function parseCSV(text){
   });
 }
 
-const CATEGORY_LIST = ['絶縁電線とケーブルの種類・用途','電線接続','電線の接続','ケーブル工事とボックス','埋込形スイッチボックスの工事','スイッチ(点滅器)の図記号','電動機・電熱器配線の図記号','コンセントの図記号','照明器具の図記号','引込口配線の機器と図記号','電線を保護する過電流遮断器','電気機器の図記号','ネオン放電工事','電線菅の種類と加工用工具','2種金属製可とう電線菅工事','金属管工事','合成樹脂菅工事','金属線ぴと金属ダクト工事','配線の一般図記号','地中配線','フロアダクト工事','2種金属可とう電線菅工事','測定器','その他'];
+const CATEGORY_LIST = ['絶縁電線とケーブルの種類・用途','電線の接続','ケーブル工事とボックス','埋込形スイッチボックスの工事','スイッチ(点滅器)の図記号','電動機・電熱器配線の図記号','コンセントの図記号','照明器具の図記号','引込口配線の機器と図記号','電線を保護する過電流遮断器','電気機器の図記号','ネオン放電工事','電線菅の種類と加工用工具','2種金属製可とう電線菅工事','金属管工事','合成樹脂菅工事','金属線ぴと金属ダクト工事','配線の一般図記号','地中配線','フロアダクト工事','2種金属可とう電線菅工事','測定器','その他'];
 
 function slugId(name, idx){
   const base = 'card_' + (name||'').replace(/[^\p{L}\p{N}]/gu,'').slice(0,12);
@@ -1117,6 +1117,7 @@ async function loadThumb(thumbEl, card){
     thumbEl.textContent = '⚡';
   }
 }
+let CARDLIST_CATEGORY_FILTER = ''; // '' = すべて
 function screenCardList(){
   const root = h('div',{});
   root.appendChild(topbar('カード一覧', `全${CARDS.length}枚`));
@@ -1126,6 +1127,20 @@ function screenCardList(){
     oninput:(e)=>{ CARDLIST_QUERY = e.target.value; renderCardListResults(); }});
   searchRow.appendChild(input);
   s.appendChild(searchRow);
+
+  s.appendChild(h('div',{class:'section-label'}, 'カテゴリで絞り込み'));
+  const usedCategories = CATEGORY_LIST.filter(cat => CARDS.some(c=>c.category===cat));
+  const catSelect = h('select',{class:'search-input', style:'appearance:auto;',
+    onchange:(e)=>{ CARDLIST_CATEGORY_FILTER = e.target.value; renderCardListResults(); }
+  });
+  catSelect.appendChild(h('option',{value:''}, `すべてのカテゴリ(${CARDS.length}枚)`));
+  usedCategories.forEach(cat=>{
+    const count = CARDS.filter(c=>c.category===cat).length;
+    const opt = h('option',{value:cat}, `${cat}(${count}枚)`);
+    if(CARDLIST_CATEGORY_FILTER === cat) opt.setAttribute('selected','selected');
+    catSelect.appendChild(opt);
+  });
+  s.appendChild(catSelect);
 
   s.appendChild(h('div',{class:'section-label'}, 'お気に入りで絞り込み'));
   const favRow = h('div',{class:'chip-row'});
@@ -1172,6 +1187,7 @@ function renderCardListResults(){
   const filtered = CARDS.filter(c => {
     const searchMatch = !q || c.name.toLowerCase().includes(q) || c.category.toLowerCase().includes(q) || (c.tags||[]).some(t=>t.toLowerCase().includes(q));
     if(!searchMatch) return false;
+    if(CARDLIST_CATEGORY_FILTER && c.category !== CARDLIST_CATEGORY_FILTER) return false;
     if(CARDLIST_FAV_FILTER === 'fav' && !c.favorite) return false;
     if(CARDLIST_FAV_FILTER === 'nonfav' && c.favorite) return false;
     if(!anyFilterActive) return true;
@@ -1613,7 +1629,7 @@ function startSession(kind, fixedModeId, category, limit){
   let count;
   if(limit) count = limit;
   else if(kind === 'todayReview') count = Infinity;
-  else count = SETTINGS.questionCount || 10;
+  else count = SETTINGS.questionCount || 40;
 
   const queue = buildQueue(pool, count, kind==='single' ? fixedModeId : null);
   if(!queue.length){ showToast('出題可能なカードがありません(画像未登録の可能性)'); return; }
@@ -1911,7 +1927,7 @@ function screenSettings(){
   const countPanel = h('div',{class:'panel'});
   countPanel.appendChild(h('div',{style:'font-size:13px;margin-bottom:10px;'}, '1回の出題数(デフォルト)'));
   const chipRow = h('div',{class:'chip-row'});
-  [5,10,20,30].forEach(n=>{
+  [5,10,20,30,40].forEach(n=>{
     chipRow.appendChild(h('button',{class:'chip'+(SETTINGS.questionCount===n?' active':''), onclick:async()=>{ SETTINGS.questionCount=n; await saveSettings(); render(); }}, String(n)+'問'));
   });
   countPanel.appendChild(chipRow);
