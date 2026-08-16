@@ -221,11 +221,11 @@ textarea.text-input{resize:vertical;font-family:var(--font-mono);font-size:12px;
 .badge.learning{background:var(--amber);color:#2a2000;background:rgba(214,169,59,0.2);color:var(--amber);}
 .badge.mastered{background:var(--teal-soft);color:var(--teal);}
 .badge.due{background:var(--danger-soft);color:var(--danger);}
-.badge.tier-unlearned{background:rgba(154,166,184,0.15);color:var(--ink-dim);}
-.badge.tier-review{background:var(--danger-soft);color:var(--danger);}
-.badge.tier-unsure{background:rgba(214,169,59,0.2);color:var(--amber);}
-.badge.tier-learned{background:var(--teal-soft);color:var(--teal);}
-.badge.tier-perfect{background:var(--blue-soft);color:var(--blue);}
+.badge.tier-unlearned{background:#5B6478;color:#fff;}
+.badge.tier-review{background:var(--danger);color:#fff;}
+.badge.tier-unsure{background:var(--amber);color:#fff;}
+.badge.tier-learned{background:var(--teal);color:#fff;}
+.badge.tier-perfect{background:var(--blue);color:#fff;}
 
 /* ---------- Study screen ---------- */
 .study-progress{display:flex;align-items:center;gap:10px;}
@@ -1825,9 +1825,12 @@ function screenStudy(){
   const root = h('div',{});
   if(!SESSION){ nav('home', {}, true); return h('div'); }
   const {card, mode} = currentQA();
+  const tier = classifyTier(LEARNING[card.id]);
+  const statusBadge = h('span',{class:`badge tier-${tier}`, style:'white-space:nowrap;flex-shrink:0;'}, TIER_LABELS[tier]);
   const editBtn = h('button',{class:'fav-btn', onclick:()=>nav('carddetail', {id:card.id})},'✏️');
   editBtn.style.display = SESSION.revealed ? '' : 'none';
-  root.appendChild(topbar('学習中', `${SESSION.idx+1} / ${SESSION.queue.length}`, true, editBtn));
+  const trailing = h('div',{style:'display:flex;align-items:center;gap:8px;'},[statusBadge, editBtn]);
+  root.appendChild(topbar('学習中', `${SESSION.idx+1} / ${SESSION.queue.length}`, true, trailing));
   const s = h('div',{class:'screen'});
 
   const progress = h('div',{class:'study-progress'},[
