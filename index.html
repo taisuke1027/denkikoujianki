@@ -132,13 +132,14 @@ body{
 .status-fill-unsure{background:var(--amber);}
 .status-fill-review{background:var(--danger);}
 .status-fill-unlearned{background:rgba(255,255,255,0.14);}
-.status-count{position:absolute;top:50%;transform:translateY(-50%);font-family:var(--font-display);font-weight:700;font-size:13px;}
-.status-count.inside{right:8px;color:#fff;}
-.status-count.outside{left:8px;color:var(--ink-dim);}
-.status-count.outside.status-color-perfect{color:var(--blue);}
-.status-count.outside.status-color-learned{color:var(--teal);}
-.status-count.outside.status-color-unsure{color:var(--amber);}
-.status-count.outside.status-color-review{color:var(--danger);}
+.status-count{
+  flex-shrink:0;width:34px;text-align:right;
+  font-family:var(--font-display);font-weight:700;font-size:13px;color:var(--ink-dim);
+}
+.status-count.status-color-perfect{color:var(--blue);}
+.status-count.status-color-learned{color:var(--teal);}
+.status-count.status-color-unsure{color:var(--amber);}
+.status-count.status-color-review{color:var(--danger);}
 
 .cta{
   display:flex;align-items:center;justify-content:center;gap:10px;
@@ -1039,15 +1040,14 @@ function classifyAll(){
 function statusRow(tier, count, total){
   const pct = total ? (count/total*100) : 0;
   const fillPct = count > 0 ? Math.max(pct, 2.5) : 0; // 0件でなければ視認できる最小幅を確保
-  const showInside = pct >= 14; // バーが十分広ければ内側に白文字で表示
   const track = h('div',{class:'status-track'});
   const fill = h('div',{class:`status-fill status-fill-${tier}`, style:`width:${fillPct}%;`});
   track.appendChild(fill);
-  track.appendChild(h('span',{class:'status-count'+(showInside?' inside':' outside')+` status-color-${tier}`}, String(count)));
   return h('div',{class:'status-row'},[
     h('span',{class:'status-icon'}, TIER_ICONS[tier]),
     h('span',{class:'status-label'}, TIER_LABELS[tier]),
-    track
+    track,
+    h('span',{class:`status-count status-color-${tier}`}, String(count))
   ]);
 }
 function screenHome(){
