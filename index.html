@@ -148,13 +148,15 @@ body{
 
 .cta{
   display:flex;align-items:center;justify-content:center;gap:10px;
-  width:100%;padding:18px;border-radius:16px;border:none;cursor:pointer;
-  background:linear-gradient(135deg, var(--accent), #A9591B);
-  color:#fff;font-family:var(--font-display);font-weight:700;font-size:16px;
-  box-shadow:0 10px 24px -8px rgba(200,114,42,0.55);
+  width:100%;padding:18px;border-radius:16px;cursor:pointer;
+  background:linear-gradient(135deg, var(--bg-elevated-2), var(--bg-elevated));
+  border:1px solid var(--line);border-left:3px solid var(--accent);
+  color:var(--ink);font-family:var(--font-display);font-weight:700;font-size:16px;
+  box-shadow:0 8px 20px -12px rgba(0,0,0,0.55);
 }
 .cta:active{transform:scale(0.98);}
-.cta .sub{display:block;font-family:var(--font-mono);font-weight:400;font-size:11px;opacity:.85;margin-top:2px;}
+.cta .sub{display:block;font-family:var(--font-mono);font-weight:400;font-size:11px;color:var(--ink-dim);opacity:.9;margin-top:2px;}
+.cta-caption{text-align:center;font-size:12px;color:var(--ink-dim);margin-top:6px;}
 
 .btn{
   padding:12px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-elevated-2);
@@ -1040,7 +1042,6 @@ function favoriteButton(card){
 function bottomNav(active){
   const items = [
     {id:'home', label:'ホーム', icon:'home'},
-    {id:'modes', label:'学習モード', icon:'target'},
     {id:'cardlist', label:'カード', icon:'cards'},
     {id:'history', label:'履歴', icon:'history'},
     {id:'settings', label:'設定', icon:'settings'},
@@ -1119,7 +1120,7 @@ function screenHome(){
 
   const statusPanel = h('div',{class:'panel'});
   statusPanel.appendChild(h('div',{class:'status-header'},[
-    h('div',{class:'status-title'}, '📊 学習状況'),
+    h('div',{class:'status-title'}, '学習状況'),
     h('div',{class:'status-progress'}, `進捗率 ${progressPct}%`)
   ]));
   TIER_ORDER.slice().reverse().forEach(tier=>{
@@ -1128,21 +1129,22 @@ function screenHome(){
   s.appendChild(statusPanel);
 
   s.appendChild(h('button',{class:'cta', style:'margin-top:14px;', onclick:()=>startSession('omakase')},[
-    '🎯 おまかせ学習', h('span',{class:'sub'}, `全${total}枚から優先度順に出題`)
+    'おまかせ学習', h('span',{class:'sub'}, `全${total}枚から優先度順に出題`)
   ]));
 
   s.appendChild(h('button',{class:'cta', style:'margin-top:10px;', onclick:()=>nav('categories')},[
-    '🗂 カテゴリ別学習', h('span',{class:'sub'}, 'カテゴリを選んで出題')
+    'カテゴリ別学習', h('span',{class:'sub'}, 'カテゴリを選んで出題')
   ]));
 
   s.appendChild(h('button',{class:'cta', style:'margin-top:10px;', onclick:()=>nav('tierselect')},[
-    '🎚 状況別学習', h('span',{class:'sub'}, '5つの学習状況から選んで出題')
+    '状況別学習', h('span',{class:'sub'}, '5つの学習状況から選んで出題')
   ]));
 
   const hasForgetting = forgettingHasAny();
   s.appendChild(h('button',{class:'cta', style:'margin-top:10px;', onclick:()=>nav('forgetting')},[
-    '⏳ 忘却曲線対応復習', h('span',{class:'sub'}, hasForgetting ? '復習カードがあります。' : '復習カードはありません。')
+    '忘却曲線対応復習', h('span',{class:'sub'}, '完璧のステータスのカードを復習')
   ]));
+  s.appendChild(h('div',{class:'cta-caption'}, hasForgetting ? '復習カードがあります。' : '復習カードはありません。'));
 
   s.appendChild(bottomNav('home'));
   root.appendChild(s);
