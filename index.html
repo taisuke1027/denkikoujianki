@@ -537,6 +537,7 @@ function newLearningRecord(){
     reviewCount:0, correctCount:0, incorrectCount:0,
     correctStreak:0, incorrectStreak:0,
     lastReviewedAt:null, nextReviewAt:null, interval:0,
+    perfectSince:null,        // 「完璧」ティアに初めて到達した日時(忘却曲線対応復習で使用)
     modeStats:{}              // { modeId: {reviewCount,correct,incorrect} } 方向別正解率(42章)
   };
 }
@@ -563,6 +564,27 @@ function classifyTier(rec){
   if(rec.correctStreak === 2) return 'learned';
   if(rec.correctStreak === 1) return 'unsure';
   return 'review';
+}
+
+/* ---------------------------------------------------------------------
+   忘却曲線対応復習: 「完璧」ティアに到達してから経過した日数でカードを抽出
+--------------------------------------------------------------------- */
+const FORGETTING_DAYS = [1,3,7,14,30];
+function daysSincePerfect(rec){
+  if(!rec || !rec.perfectSince) return null;
+  const diffMs = Date.now() - new Date(rec.perfectSince).getTime();
+  return Math.floor(diffMs / (1000*60*60*24));
+}
+function forgettingCardsForDays(days){
+  return CARDS.filter(c=>{
+    const rec = LEARNING[c.id];
+    if(classifyTier(rec) !== 'perfect') return false;
+    const d = daysSincePerfect(rec);
+    return d !== null && d >= days;
+  });
+}
+function forgettingHasAny(){
+  return forgettingCardsForDays(FORGETTING_DAYS[0]).length > 0;
 }
 
 async function loadAll(){
@@ -822,6 +844,9 @@ const ReviewScheduler = (() => {
       rec.modeStats[modeId].correct++;
       rec.interval = intervalForCorrectStreak(rec.correctStreak);
       rec.status = rec.correctStreak >= 5 ? 'mastered' : 'learning';
+      if(rec.correctStreak === 3 && !rec.perfectSince){
+        rec.perfectSince = new Date().toISOString(); // 「完璧」ティアに到達した日時(忘却曲線対応復習で使用)
+      }
     } else {
       rec.incorrectCount++;
       rec.incorrectStreak++;
@@ -829,6 +854,7 @@ const ReviewScheduler = (() => {
       rec.modeStats[modeId].incorrect++;
       rec.interval = intervalForIncorrectStreak(rec.incorrectStreak);
       rec.status = 'learning';
+      rec.perfectSince = null; // 不正解で「完璧」から外れるためリセット
     }
     rec.nextReviewAt = daysFromNow(rec.interval);
     return rec;
@@ -1105,11 +1131,18 @@ function screenHome(){
     '🎯 おまかせ学習', h('span',{class:'sub'}, `全${total}枚から優先度順に出題`)
   ]));
 
-  s.appendChild(h('div',{class:'section-label'}, 'クイックスタート'));
-  const quick = h('div',{class:'btn-row'});
-  quick.appendChild(h('button',{class:'btn', onclick:()=>nav('categories')},['🗂 カテゴリ別学習']));
-  quick.appendChild(h('button',{class:'btn', onclick:()=>nav('modes')},['📋 モード選択']));
-  s.appendChild(quick);
+  s.appendChild(h('button',{class:'cta', style:'margin-top:10px;', onclick:()=>nav('categories')},[
+    '🗂 カテゴリ別学習', h('span',{class:'sub'}, 'カテゴリを選んで出題')
+  ]));
+
+  s.appendChild(h('button',{class:'cta', style:'margin-top:10px;', onclick:()=>nav('tierselect')},[
+    '🎚 状況別学習', h('span',{class:'sub'}, '5つの学習状況から選んで出題')
+  ]));
+
+  const hasForgetting = forgettingHasAny();
+  s.appendChild(h('button',{class:'cta', style:'margin-top:10px;', onclick:()=>nav('forgetting')},[
+    '⏳ 忘却曲線対応復習', h('span',{class:'sub'}, hasForgetting ? '復習カードがあります。' : '復習カードはありません。')
+  ]));
 
   s.appendChild(bottomNav('home'));
   root.appendChild(s);
@@ -1130,8 +1163,6 @@ function screenModes(){
 
   const list3 = h('div',{class:'mode-list', style:'margin-top:8px;'});
   list3.appendChild(modeItem('カテゴリ別学習', '', ()=>nav('categories')));
-  list3.appendChild(modeItem('苦手カード', '', ()=>nav('weak')));
-  list3.appendChild(modeItem('未学習カード', '', ()=>nav('unlearned')));
   s.appendChild(list3);
 
   s.appendChild(bottomNav('modes'));
@@ -1200,6 +1231,55 @@ function screenCategories(){
   root.appendChild(s);
   return root;
 }
+
+/* =========================================================================
+   SCREEN: 状況別学習 (5段階ティアから選んで学習)
+   ========================================================================= */
+function screenTierSelect(){
+  const root = h('div',{});
+  root.appendChild(topbar('状況別学習', null, true));
+  const s = h('div',{class:'screen'});
+  const buckets = classifyAll();
+  const list = h('div',{class:'mode-list'});
+  TIER_ORDER.forEach(tier=>{
+    const count = buckets[tier]||0;
+    const item = h('div',{class:'mode-item tier-select-item', onclick:()=>startSession('tier', null, tier)},[
+      h('div',{style:'display:flex;align-items:center;gap:10px;'},[
+        h('span',{class:`badge tier-${tier}`}, TIER_LABELS[tier]),
+      ]),
+      h('div',{style:'display:flex;align-items:center;gap:10px;'},[
+        h('div',{class:'count'}, `${count}枚`),
+        h('div',{class:'arrow'}, '▶')
+      ])
+    ]);
+    list.appendChild(item);
+  });
+  s.appendChild(list);
+  s.appendChild(bottomNav('modes'));
+  root.appendChild(s);
+  return root;
+}
+
+/* =========================================================================
+   SCREEN: 忘却曲線対応復習
+   ========================================================================= */
+function screenForgetting(){
+  const root = h('div',{});
+  root.appendChild(topbar('忘却曲線対応復習', null, true));
+  const s = h('div',{class:'screen'});
+  s.appendChild(h('div',{style:'font-size:12px;color:var(--ink-dim);margin-bottom:14px;'},
+    '「完璧」になったカードを、経過日数ごとに復習できます。'));
+  const list = h('div',{class:'mode-list'});
+  FORGETTING_DAYS.forEach(days=>{
+    const count = forgettingCardsForDays(days).length;
+    list.appendChild(modeItem(`${days}日後の復習`, `${count}枚`, ()=>startSession('forgetting', null, days)));
+  });
+  s.appendChild(list);
+  s.appendChild(bottomNav('modes'));
+  root.appendChild(s);
+  return root;
+}
+
 function screenWeak(){
   const root = h('div',{});
   root.appendChild(topbar('苦手カード', null, true));
@@ -1794,6 +1874,8 @@ function startSession(kind, fixedModeId, category, limit){
     return rec && rec.reviewCount>=2 && (rec.incorrectCount/rec.reviewCount)>=0.34;
   });
   if(kind === 'unlearned') pool = CARDS.filter(c=> !LEARNING[c.id] || LEARNING[c.id].reviewCount===0);
+  if(kind === 'tier') pool = CARDS.filter(c=> classifyTier(LEARNING[c.id]) === category); // category に tier id を渡す
+  if(kind === 'forgetting') pool = forgettingCardsForDays(category); // category に経過日数を渡す
 
   if(!pool.length){ showToast('対象のカードがありません'); return; }
 
@@ -2262,6 +2344,8 @@ function render(){
     case 'home': node = screenHome(); break;
     case 'modes': node = screenModes(); break;
     case 'categories': node = screenCategories(); break;
+    case 'tierselect': node = screenTierSelect(); break;
+    case 'forgetting': node = screenForgetting(); break;
     case 'weak': node = screenWeak(); break;
     case 'unlearned': node = screenUnlearned(); break;
     case 'cardlist': node = screenCardList(); break;
