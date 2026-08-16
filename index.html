@@ -671,7 +671,7 @@ function parseCSV(text){
   });
 }
 
-const CATEGORY_LIST = ['配線図記号','材料及び工具','工事の施工方法','その他'];
+const CATEGORY_LIST = ['コンセント','スイッチ','配線用遮断器など','照明器具','電線菅','ボックス','計測器','電線・ケーブルの工具','金属管工具','合成樹脂菅工具','木材工具','その他工具','電線・ケーブル','配線図記号','その他'];
 
 function slugId(name, idx){
   const base = 'card_' + (name||'').replace(/[^\p{L}\p{N}]/gu,'').slice(0,12);
