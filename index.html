@@ -178,6 +178,13 @@ body{
 .mode-item .name{font-weight:500;font-size:14px;}
 .mode-item .count{font-family:var(--font-mono);font-size:11px;color:var(--ink-dim);}
 
+.cat-item{flex-direction:column;align-items:stretch;gap:8px;}
+.cat-item-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.cat-item-right{display:flex;align-items:center;gap:8px;}
+.cat-pct{font-family:var(--font-display);font-weight:700;font-size:13px;color:var(--ink);}
+.cat-stackbar{display:flex;width:100%;height:8px;border-radius:5px;overflow:hidden;background:rgba(255,255,255,0.06);}
+.cat-stackbar-seg{height:100%;}
+
 .chip-row{display:flex;flex-wrap:wrap;gap:8px;}
 .chip{
   padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg-elevated);
@@ -1138,6 +1145,34 @@ function screenModes(){
   root.appendChild(s);
   return root;
 }
+function categoryItem(cat, catCards, onclick){
+  const total = catCards.length;
+  const buckets = {unlearned:0, review:0, unsure:0, learned:0, perfect:0};
+  catCards.forEach(c=>{
+    const tier = classifyTier(LEARNING[c.id]);
+    buckets[tier] = (buckets[tier]||0)+1;
+  });
+  const solid = (buckets.perfect||0) + (buckets.learned||0) + (buckets.unsure||0);
+  const pct = total ? Math.round(solid/total*100) : 0;
+
+  const item = h('div',{class:'mode-item cat-item', onclick});
+  const top = h('div',{class:'cat-item-top'},[
+    h('div',{class:'name'}, cat),
+    h('div',{class:'cat-item-right'},[
+      h('span',{class:'cat-pct'}, `${pct}%`),
+      h('span',{class:'count'}, `${total}枚`)
+    ])
+  ]);
+  const bar = h('div',{class:'cat-stackbar'});
+  TIER_ORDER.forEach(tier=>{
+    const c = buckets[tier]||0;
+    if(!c) return;
+    bar.appendChild(h('div',{class:`cat-stackbar-seg status-fill-${tier}`, style:`width:${c/total*100}%;`}));
+  });
+  item.appendChild(top);
+  item.appendChild(bar);
+  return item;
+}
 function modeItem(name, count, onclick, arrowText){
   return h('div',{class:'mode-item', onclick},[
     h('div',{},[h('div',{class:'name'}, name), count?h('div',{class:'count'}, count):null]),
@@ -1152,13 +1187,16 @@ function screenCategories(){
   const root = h('div',{});
   root.appendChild(topbar('カテゴリ別学習', null, true));
   const s = h('div',{class:'screen'});
-  const cats = {};
-  CARDS.forEach(c=>{ cats[c.category] = (cats[c.category]||0)+1; });
-  const list = h('div',{class:'mode-list'});
-  Object.entries(cats).sort((a,b)=>b[1]-a[1]).forEach(([cat,count])=>{
-    list.appendChild(modeItem(cat, `${count}枚`, ()=>startSession('category', null, cat)));
+  const catCards = {};
+  CARDS.forEach(c=>{
+    if(!catCards[c.category]) catCards[c.category] = [];
+    catCards[c.category].push(c);
   });
-  if(!Object.keys(cats).length) list.appendChild(h('div',{class:'empty-state'},'カテゴリがありません'));
+  const list = h('div',{class:'mode-list'});
+  Object.entries(catCards).sort((a,b)=>b[1].length-a[1].length).forEach(([cat,cards])=>{
+    list.appendChild(categoryItem(cat, cards, ()=>startSession('category', null, cat)));
+  });
+  if(!Object.keys(catCards).length) list.appendChild(h('div',{class:'empty-state'},'カテゴリがありません'));
   s.appendChild(list);
   s.appendChild(bottomNav('modes'));
   root.appendChild(s);
