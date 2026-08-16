@@ -180,10 +180,12 @@ body{
 
 .cat-item{flex-direction:column;align-items:stretch;gap:8px;}
 .cat-item-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
-.cat-item-right{display:flex;align-items:center;gap:8px;}
-.cat-pct{font-family:var(--font-display);font-weight:700;font-size:13px;color:var(--ink);}
 .cat-stackbar{display:flex;width:100%;height:8px;border-radius:5px;overflow:hidden;background:rgba(255,255,255,0.06);}
 .cat-stackbar-seg{height:100%;}
+.cat-legend{display:flex;flex-wrap:wrap;gap:6px 12px;}
+.cat-legend-item{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-dim);}
+.cat-legend-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0;}
+.cat-legend-count{font-family:var(--font-mono);color:var(--ink);font-weight:700;}
 
 .chip-row{display:flex;flex-wrap:wrap;gap:8px;}
 .chip{
@@ -1089,10 +1091,6 @@ function screenHome(){
   const solidCount = (buckets.perfect||0) + (buckets.learned||0) + (buckets.unsure||0);
   const progressPct = total ? Math.round(solidCount/total*1000)/10 : 0;
 
-  s.appendChild(h('button',{class:'cta', onclick:()=>startSession('omakase')},[
-    '🎯 おまかせ学習', h('span',{class:'sub'}, `全${total}枚から優先度順に出題`)
-  ]));
-
   const statusPanel = h('div',{class:'panel'});
   statusPanel.appendChild(h('div',{class:'status-header'},[
     h('div',{class:'status-title'}, '📊 学習状況'),
@@ -1102,6 +1100,10 @@ function screenHome(){
     statusPanel.appendChild(statusRow(tier, buckets[tier]||0, total));
   });
   s.appendChild(statusPanel);
+
+  s.appendChild(h('button',{class:'cta', style:'margin-top:14px;', onclick:()=>startSession('omakase')},[
+    '🎯 おまかせ学習', h('span',{class:'sub'}, `全${total}枚から優先度順に出題`)
+  ]));
 
   s.appendChild(h('div',{class:'section-label'}, 'クイックスタート'));
   const quick = h('div',{class:'btn-row'});
@@ -1122,20 +1124,11 @@ function screenModes(){
   root.appendChild(topbar('学習モード選択'));
   const s = h('div',{class:'screen'});
 
-  s.appendChild(h('div',{class:'section-label'},'おすすめ'));
   const list1 = h('div',{class:'mode-list'});
   list1.appendChild(modeItem('おまかせ学習', '自動選択', ()=>startSession('omakase')));
   s.appendChild(list1);
 
-  s.appendChild(h('div',{class:'section-label'},'出題方向を指定'));
-  const list2 = h('div',{class:'mode-list'});
-  QUESTION_MODES.forEach(m=>{
-    list2.appendChild(modeItem(m.label, '', ()=>startSession('single', m.id), m.qSide+' → '+m.aSide));
-  });
-  s.appendChild(list2);
-
-  s.appendChild(h('div',{class:'section-label'},'絞り込み学習'));
-  const list3 = h('div',{class:'mode-list'});
+  const list3 = h('div',{class:'mode-list', style:'margin-top:8px;'});
   list3.appendChild(modeItem('カテゴリ別学習', '', ()=>nav('categories')));
   list3.appendChild(modeItem('苦手カード', '', ()=>nav('weak')));
   list3.appendChild(modeItem('未学習カード', '', ()=>nav('unlearned')));
@@ -1152,16 +1145,11 @@ function categoryItem(cat, catCards, onclick){
     const tier = classifyTier(LEARNING[c.id]);
     buckets[tier] = (buckets[tier]||0)+1;
   });
-  const solid = (buckets.perfect||0) + (buckets.learned||0) + (buckets.unsure||0);
-  const pct = total ? Math.round(solid/total*100) : 0;
 
   const item = h('div',{class:'mode-item cat-item', onclick});
   const top = h('div',{class:'cat-item-top'},[
     h('div',{class:'name'}, cat),
-    h('div',{class:'cat-item-right'},[
-      h('span',{class:'cat-pct'}, `${pct}%`),
-      h('span',{class:'count'}, `${total}枚`)
-    ])
+    h('span',{class:'count'}, `${total}枚`)
   ]);
   const bar = h('div',{class:'cat-stackbar'});
   TIER_ORDER.forEach(tier=>{
@@ -1169,8 +1157,18 @@ function categoryItem(cat, catCards, onclick){
     if(!c) return;
     bar.appendChild(h('div',{class:`cat-stackbar-seg status-fill-${tier}`, style:`width:${c/total*100}%;`}));
   });
+  const legend = h('div',{class:'cat-legend'});
+  TIER_ORDER.forEach(tier=>{
+    const c = buckets[tier]||0;
+    legend.appendChild(h('span',{class:'cat-legend-item'},[
+      h('span',{class:`cat-legend-dot status-fill-${tier}`}),
+      h('span',{class:'cat-legend-label'}, TIER_LABELS[tier]),
+      h('span',{class:'cat-legend-count'}, String(c))
+    ]));
+  });
   item.appendChild(top);
   item.appendChild(bar);
+  item.appendChild(legend);
   return item;
 }
 function modeItem(name, count, onclick, arrowText){
