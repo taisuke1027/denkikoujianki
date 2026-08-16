@@ -147,15 +147,16 @@ body{
 .status-count.status-color-review{color:var(--danger);}
 
 .cta{
-  display:flex;align-items:center;justify-content:center;gap:10px;
-  width:100%;padding:18px;border-radius:16px;cursor:pointer;
-  background:linear-gradient(135deg, var(--bg-elevated-2), var(--bg-elevated));
-  border:1px solid var(--line);border-left:3px solid var(--accent);
+  display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;
+  width:100%;padding:16px 18px;border-radius:16px;cursor:pointer;text-align:left;
+  background:linear-gradient(135deg, #2A3A5C, #22314E);
+  border:1px solid rgba(255,255,255,0.14);border-left:3px solid var(--accent);
   color:var(--ink);font-family:var(--font-display);font-weight:700;font-size:16px;
   box-shadow:0 8px 20px -12px rgba(0,0,0,0.55);
 }
 .cta:active{transform:scale(0.98);}
-.cta .sub{display:block;font-family:var(--font-mono);font-weight:400;font-size:11px;color:var(--ink-dim);opacity:.9;margin-top:2px;}
+.cta .sub{display:block;font-family:var(--font-mono);font-weight:400;font-size:11px;color:var(--ink-dim);opacity:.9;}
+.cta .cta-caption-inline{display:block;font-family:var(--font-mono);font-weight:600;font-size:11px;color:var(--accent);margin-top:1px;}
 .cta-caption{text-align:center;font-size:12px;color:var(--ink-dim);margin-top:6px;}
 
 .btn{
@@ -1142,9 +1143,10 @@ function screenHome(){
 
   const hasForgetting = forgettingHasAny();
   s.appendChild(h('button',{class:'cta', style:'margin-top:10px;', onclick:()=>nav('forgetting')},[
-    '忘却曲線対応復習', h('span',{class:'sub'}, '完璧のステータスのカードを復習')
+    '忘却曲線対応復習',
+    h('span',{class:'sub'}, '完璧のステータスのカードを復習'),
+    h('span',{class:'cta-caption-inline'}, hasForgetting ? '復習カードがあります。' : '復習カードはありません。')
   ]));
-  s.appendChild(h('div',{class:'cta-caption'}, hasForgetting ? '復習カードがあります。' : '復習カードはありません。'));
 
   s.appendChild(bottomNav('home'));
   root.appendChild(s);
