@@ -23,6 +23,8 @@
   --danger:#C0453A;
   --danger-soft:rgba(192,69,58,0.18);
   --amber:#D6A93B;
+  --blue:#4F7FE0;
+  --blue-soft:rgba(79,127,224,0.18);
   --radius:18px;
   --radius-sm:12px;
   --font-display:'Zen Kaku Gothic New', 'Noto Sans JP', sans-serif;
@@ -116,6 +118,28 @@ body{
 .gauge-text .big{font-family:var(--font-display);font-weight:900;font-size:22px;}
 .gauge-text .small{font-size:12px;color:var(--ink-dim);margin-top:2px;}
 
+.status-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.status-title{font-family:var(--font-display);font-weight:700;font-size:15px;}
+.status-progress{font-size:13px;color:var(--ink-dim);}
+.status-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+.status-row:last-child{margin-bottom:0;}
+.status-icon{font-size:17px;width:22px;text-align:center;flex-shrink:0;}
+.status-label{font-size:13px;width:56px;flex-shrink:0;color:var(--ink);}
+.status-track{position:relative;flex:1;height:20px;background:rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;}
+.status-fill{position:absolute;left:0;top:0;bottom:0;border-radius:10px;transition:width 0.3s ease;}
+.status-fill-perfect{background:var(--blue);}
+.status-fill-learned{background:var(--teal);}
+.status-fill-unsure{background:var(--amber);}
+.status-fill-review{background:var(--danger);}
+.status-fill-unlearned{background:rgba(255,255,255,0.14);}
+.status-count{position:absolute;top:50%;transform:translateY(-50%);font-family:var(--font-display);font-weight:700;font-size:13px;}
+.status-count.inside{right:8px;color:#fff;}
+.status-count.outside{left:8px;color:var(--ink-dim);}
+.status-count.outside.status-color-perfect{color:var(--blue);}
+.status-count.outside.status-color-learned{color:var(--teal);}
+.status-count.outside.status-color-unsure{color:var(--amber);}
+.status-count.outside.status-color-review{color:var(--danger);}
+
 .cta{
   display:flex;align-items:center;justify-content:center;gap:10px;
   width:100%;padding:18px;border-radius:16px;border:none;cursor:pointer;
@@ -182,6 +206,11 @@ textarea.text-input{resize:vertical;font-family:var(--font-mono);font-size:12px;
 .badge.learning{background:var(--amber);color:#2a2000;background:rgba(214,169,59,0.2);color:var(--amber);}
 .badge.mastered{background:var(--teal-soft);color:var(--teal);}
 .badge.due{background:var(--danger-soft);color:var(--danger);}
+.badge.tier-unlearned{background:rgba(154,166,184,0.15);color:var(--ink-dim);}
+.badge.tier-review{background:var(--danger-soft);color:var(--danger);}
+.badge.tier-unsure{background:rgba(214,169,59,0.2);color:var(--amber);}
+.badge.tier-learned{background:var(--teal-soft);color:var(--teal);}
+.badge.tier-perfect{background:var(--blue-soft);color:var(--blue);}
 
 /* ---------- Study screen ---------- */
 .study-progress{display:flex;align-items:center;gap:10px;}
@@ -462,10 +491,10 @@ async function storeDelete(key){
    2. IN-MEMORY STATE (loaded from storage at boot)
 --------------------------------------------------------------------- */
 const DEFAULT_SETTINGS = {
-  questionCount: 40,          // 1回の出題数デフォルト
+  questionCount: 'all',       // 1回の出題数デフォルト('all'=すべて出題)
   randomOrder: true,          // ランダム性を出題順に反映
   enabledModes: {             // 出題方向ごとの有効/無効(将来拡張しやすい構造)
-    symbol2name:true, photo2name:true, desc2name:true, name2desc:true
+    symbol2name:false, photo2name:true, desc2name:false, name2desc:false
   }
 };
 
@@ -485,7 +514,7 @@ function modeById(id){ return QUESTION_MODES.find(m=>m.id===id); }
 
 function newLearningRecord(){
   return {
-    status:'new',            // new | learning | mastered
+    status:'new',            // new | learning | mastered (旧仕様の名残。互換性のため保持)
     reviewCount:0, correctCount:0, incorrectCount:0,
     correctStreak:0, incorrectStreak:0,
     lastReviewedAt:null, nextReviewAt:null, interval:0,
@@ -495,6 +524,26 @@ function newLearningRecord(){
 function getLearning(cardId){
   if(!LEARNING[cardId]) LEARNING[cardId] = newLearningRecord();
   return LEARNING[cardId];
+}
+
+/* ---------------------------------------------------------------------
+   学習状況の5段階ティア分類(未学習/要復習/不安あり/覚えた/完璧)
+   - 未学習: 一度も回答していない
+   - 要復習: 直近の回答が不正解(連続不正解が1以上)
+   - 不安あり: 連続正解1回
+   - 覚えた: 連続正解2回
+   - 完璧: 連続正解3回以上
+--------------------------------------------------------------------- */
+const TIER_ORDER = ['unlearned','review','unsure','learned','perfect'];
+const TIER_LABELS = {unlearned:'未学習', review:'要復習', unsure:'不安あり', learned:'覚えた', perfect:'完璧'};
+const TIER_ICONS = {unlearned:'😐', review:'😖', unsure:'😟', learned:'🙂', perfect:'😆'};
+function classifyTier(rec){
+  if(!rec || rec.reviewCount === 0) return 'unlearned';
+  if(rec.incorrectStreak >= 1) return 'review';
+  if(rec.correctStreak >= 3) return 'perfect';
+  if(rec.correctStreak === 2) return 'learned';
+  if(rec.correctStreak === 1) return 'unsure';
+  return 'review';
 }
 
 async function loadAll(){
@@ -775,29 +824,16 @@ const ReviewScheduler = (() => {
 })();
 
 /* ---------------------------------------------------------------------
-   6. カード選定ロジック (おまかせ学習 / 今日の復習 の優先順位)
+   6. カード選定ロジック (おまかせ学習 の優先順位)
+   優先順位: 未学習 > 要復習 > 不安あり > 覚えた > 完璧
 --------------------------------------------------------------------- */
 function priorityScore(card){
   const rec = getLearning(card.id);
-  const now = new Date();
-  const overdue = rec.nextReviewAt && new Date(rec.nextReviewAt) < now;
-  const dueToday = rec.nextReviewAt && sameDay(new Date(rec.nextReviewAt), now);
-  let score = 0;
-  if(overdue) score += 1000 + (now - new Date(rec.nextReviewAt))/(1000*60*60*24); // 過ぎているほど優先
-  else if(dueToday) score += 500;
-  else if(rec.reviewCount > 0){
-    const incorrectRate = rec.reviewCount ? rec.incorrectCount/rec.reviewCount : 0;
-    score += incorrectRate * 200; // 不正解率が高いほど優先
-    const daysSinceLearn = rec.lastReviewedAt ? (now - new Date(rec.lastReviewedAt))/(1000*60*60*24) : 999;
-    if(daysSinceLearn < 1) score += 30; // 覚えたばかり = 低優先(後回し)寄りに調整
-  } else {
-    score += 10; // 未学習は最後
-  }
-  score += Math.random()*8; // ランダム性
-  return score;
+  const tier = classifyTier(rec);
+  const tierIndex = TIER_ORDER.indexOf(tier); // 0=未学習(最優先) ... 4=完璧(最後)
+  const base = (TIER_ORDER.length - tierIndex) * 100; // ティアが早いほど高スコア
+  return base + Math.random()*8; // 同ティア内はランダム性を持たせる
 }
-function sameDay(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
-
 // 出題に必要なデータ(名称/写真/配線図記号/役割)が実際に登録されているかを判定
 function cardHasSide(card, side){
   if(side === 'name') return !!(card.name && card.name.trim());
@@ -992,14 +1028,27 @@ function gaugeSVG(pct){
    SCREEN: HOME
    ========================================================================= */
 function classifyAll(){
-  const buckets = {new:0, learning:0, mastered:0, due:0};
+  const buckets = {unlearned:0, review:0, unsure:0, learned:0, perfect:0};
   CARDS.forEach(c=>{
     const rec = LEARNING[c.id];
-    const cls = ReviewScheduler.classify(rec);
-    if(cls === 'due') buckets.due++;
-    else buckets[cls] = (buckets[cls]||0)+1;
+    const tier = classifyTier(rec);
+    buckets[tier] = (buckets[tier]||0)+1;
   });
   return buckets;
+}
+function statusRow(tier, count, total){
+  const pct = total ? (count/total*100) : 0;
+  const fillPct = count > 0 ? Math.max(pct, 2.5) : 0; // 0件でなければ視認できる最小幅を確保
+  const showInside = pct >= 14; // バーが十分広ければ内側に白文字で表示
+  const track = h('div',{class:'status-track'});
+  const fill = h('div',{class:`status-fill status-fill-${tier}`, style:`width:${fillPct}%;`});
+  track.appendChild(fill);
+  track.appendChild(h('span',{class:'status-count'+(showInside?' inside':' outside')+` status-color-${tier}`}, String(count)));
+  return h('div',{class:'status-row'},[
+    h('span',{class:'status-icon'}, TIER_ICONS[tier]),
+    h('span',{class:'status-label'}, TIER_LABELS[tier]),
+    track
+  ]);
 }
 function screenHome(){
   const root = h('div',{});
@@ -1021,30 +1070,22 @@ function screenHome(){
 
   const buckets = classifyAll();
   const total = CARDS.length;
-  const masteredPct = total ? Math.round((buckets.mastered||0)/total*100) : 0;
+  const solidCount = (buckets.perfect||0) + (buckets.learned||0) + (buckets.unsure||0);
+  const progressPct = total ? Math.round(solidCount/total*1000)/10 : 0;
 
-  const gaugePanel = h('div',{class:'panel gauge-wrap'},[
-    gaugeSVG(masteredPct),
-    h('div',{class:'gauge-text'},[
-      h('div',{class:'big'}, `習得率 ${masteredPct}%`),
-      h('div',{class:'small'}, `全 ${total} 枚中 ${buckets.mastered||0} 枚を習得`)
-    ])
-  ]);
-  s.appendChild(gaugePanel);
-
-  const grid = h('div',{class:'stat-grid'},[
-    h('div',{class:'stat-tile due'},[h('div',{class:'num'}, String(buckets.due||0)), h('div',{class:'label'},'今日の復習')]),
-    h('div',{class:'stat-tile new'},[h('div',{class:'num'}, String(buckets.new||0)), h('div',{class:'label'},'未学習')]),
-    h('div',{class:'stat-tile learning'},[h('div',{class:'num'}, String(buckets.learning||0)), h('div',{class:'label'},'学習中')]),
-    h('div',{class:'stat-tile mastered'},[h('div',{class:'num'}, String(buckets.mastered||0)), h('div',{class:'label'},'習得済み')]),
-  ]);
-  s.appendChild(grid);
-
-  const dueCount = buckets.due||0;
-  const ctaSub = dueCount>0 ? `${dueCount}枚が復習待ちです` : '復習予定のカードはありません';
-  s.appendChild(h('button',{class:'cta', onclick:()=>startSession('todayReview')},[
-    '今日の復習を始める', h('span',{class:'sub'}, ctaSub)
+  s.appendChild(h('button',{class:'cta', onclick:()=>startSession('omakase')},[
+    '🎯 おまかせ学習', h('span',{class:'sub'}, `全${total}枚から優先度順に出題`)
   ]));
+
+  const statusPanel = h('div',{class:'panel'});
+  statusPanel.appendChild(h('div',{class:'status-header'},[
+    h('div',{class:'status-title'}, '📊 学習状況'),
+    h('div',{class:'status-progress'}, `進捗率 ${progressPct}%`)
+  ]));
+  TIER_ORDER.slice().reverse().forEach(tier=>{
+    statusPanel.appendChild(statusRow(tier, buckets[tier]||0, total));
+  });
+  s.appendChild(statusPanel);
 
   s.appendChild(h('div',{class:'section-label'}, 'クイックスタート'));
   const quick = h('div',{class:'btn-row'});
@@ -1068,7 +1109,6 @@ function screenModes(){
   s.appendChild(h('div',{class:'section-label'},'おすすめ'));
   const list1 = h('div',{class:'mode-list'});
   list1.appendChild(modeItem('おまかせ学習', '自動選択', ()=>startSession('omakase')));
-  list1.appendChild(modeItem('今日の復習', `${classifyAll().due||0}枚`, ()=>startSession('todayReview')));
   s.appendChild(list1);
 
   s.appendChild(h('div',{class:'section-label'},'出題方向を指定'));
@@ -1166,8 +1206,7 @@ let CARDLIST_FILTERS = { name:false, photo:false, desc:false, symbol:false };
 let CARDLIST_FAV_FILTER = null; // null | 'fav' | 'nonfav'
 function cardListItem(card){
   const rec = LEARNING[card.id];
-  const cls = ReviewScheduler.classify(rec);
-  const clsLabel = {new:'未学習', learning:'学習中', mastered:'習得', due:'要復習'}[cls];
+  const tier = classifyTier(rec);
   const item = h('div',{class:'card-list-item', onclick:()=>nav('carddetail', {id:card.id})});
   const thumb = h('div',{class:'thumb'});
   if(card.photoImage) thumb.appendChild(h('img',{src:'', alt:''}));
@@ -1181,7 +1220,7 @@ function cardListItem(card){
     nameRow,
     h('div',{class:'cli-meta'}, card.category)
   ]));
-  item.appendChild(h('span',{class:'badge '+cls}, clsLabel));
+  item.appendChild(h('span',{class:'badge tier-'+tier}, TIER_LABELS[tier]));
   return item;
 }
 async function loadThumb(thumbEl, card){
@@ -1472,16 +1511,15 @@ function screenCardDetail(params){
   }, card.description || ''));
 
   s.appendChild(h('div',{class:'section-label'},'学習状況'));
-  const cls = ReviewScheduler.classify(rec);
-  const clsLabel = {new:'未学習', learning:'学習中', mastered:'習得', due:'要復習'}[cls];
+  const tier = classifyTier(rec);
   const accuracy = rec.reviewCount ? Math.round(rec.correctCount/rec.reviewCount*100) : 0;
   const statPanel = h('div',{class:'panel'});
   [
-    ['状態', clsLabel],
+    ['状態', TIER_ICONS[tier]+' '+TIER_LABELS[tier]],
     ['正解率', accuracy+'%'],
     ['学習回数', rec.reviewCount+'回'],
     ['連続正解', rec.correctStreak+'回'],
-    ['次回復習', rec.nextReviewAt ? new Date(rec.nextReviewAt).toLocaleDateString('ja-JP') : '-'],
+    ['連続不正解', rec.incorrectStreak+'回'],
   ].forEach(([k,v])=> statPanel.appendChild(h('div',{class:'kv-row'},[h('span',{class:'k'},k), h('span',{class:'v'},String(v))])));
   s.appendChild(statPanel);
 
@@ -1711,13 +1749,12 @@ function startSession(kind, fixedModeId, category, limit){
     return rec && rec.reviewCount>=2 && (rec.incorrectCount/rec.reviewCount)>=0.34;
   });
   if(kind === 'unlearned') pool = CARDS.filter(c=> !LEARNING[c.id] || LEARNING[c.id].reviewCount===0);
-  if(kind === 'todayReview') pool = CARDS.filter(c=> ReviewScheduler.classify(LEARNING[c.id])==='due');
 
   if(!pool.length){ showToast('対象のカードがありません'); return; }
 
   let count;
   if(limit) count = limit;
-  else if(kind === 'todayReview') count = Infinity;
+  else if(SETTINGS.questionCount === 'all') count = Infinity;
   else count = SETTINGS.questionCount || 40;
 
   const queue = buildQueue(pool, count, kind==='single' ? fixedModeId : null);
@@ -1982,10 +2019,11 @@ function screenHistory(){
   const buckets = classifyAll();
   s.appendChild(h('div',{class:'panel'},[
     h('div',{class:'section-label'},'内訳'),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'未学習'), h('span',{class:'v'}, (buckets.new||0)+'枚')]),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'学習中'), h('span',{class:'v'}, (buckets.learning||0)+'枚')]),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'習得済み'), h('span',{class:'v'}, (buckets.mastered||0)+'枚')]),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'要復習'), h('span',{class:'v'}, (buckets.due||0)+'枚')]),
+    h('div',{class:'kv-row'},[h('span',{class:'k'},'未学習'), h('span',{class:'v'}, (buckets.unlearned||0)+'枚')]),
+    h('div',{class:'kv-row'},[h('span',{class:'k'},'要復習'), h('span',{class:'v'}, (buckets.review||0)+'枚')]),
+    h('div',{class:'kv-row'},[h('span',{class:'k'},'不安あり'), h('span',{class:'v'}, (buckets.unsure||0)+'枚')]),
+    h('div',{class:'kv-row'},[h('span',{class:'k'},'覚えた'), h('span',{class:'v'}, (buckets.learned||0)+'枚')]),
+    h('div',{class:'kv-row'},[h('span',{class:'k'},'完璧'), h('span',{class:'v'}, (buckets.perfect||0)+'枚')]),
   ]));
 
   // 最近復習したカード
@@ -2016,8 +2054,9 @@ function screenSettings(){
   const countPanel = h('div',{class:'panel'});
   countPanel.appendChild(h('div',{style:'font-size:13px;margin-bottom:10px;'}, '1回の出題数(デフォルト)'));
   const chipRow = h('div',{class:'chip-row'});
-  [5,10,20,30,40].forEach(n=>{
-    chipRow.appendChild(h('button',{class:'chip'+(SETTINGS.questionCount===n?' active':''), onclick:async()=>{ SETTINGS.questionCount=n; await saveSettings(); render(); }}, String(n)+'問'));
+  [5,10,20,30,40,'all'].forEach(n=>{
+    const label = n === 'all' ? '全て' : String(n)+'問';
+    chipRow.appendChild(h('button',{class:'chip'+(SETTINGS.questionCount===n?' active':''), onclick:async()=>{ SETTINGS.questionCount=n; await saveSettings(); render(); }}, label));
   });
   countPanel.appendChild(chipRow);
   s.appendChild(countPanel);
