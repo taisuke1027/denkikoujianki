@@ -671,7 +671,7 @@ function parseCSV(text){
   });
 }
 
-const CATEGORY_LIST = ['配線図記号','その他'];
+const CATEGORY_LIST = ['配線図記号','材料及び工具','工事の施工方法','その他'];
 
 function slugId(name, idx){
   const base = 'card_' + (name||'').replace(/[^\p{L}\p{N}]/gu,'').slice(0,12);
@@ -1274,7 +1274,20 @@ function renderCardListResults(){
     return (f.name && missingName) || (f.photo && missingPhoto) || (f.desc && missingDesc) || (f.symbol && missingSymbol);
   });
   if(!filtered.length){ results.appendChild(h('div',{class:'empty-state'}, '該当するカードがありません')); return; }
-  filtered.forEach(c=> results.appendChild(cardListItem(c)));
+  // カテゴリごとにまとまるよう安定ソート(CATEGORY_LISTの順番を基準に、未知のカテゴリは末尾)
+  const catIndex = (cat) => { const i = CATEGORY_LIST.indexOf(cat); return i === -1 ? CATEGORY_LIST.length : i; };
+  const sorted = filtered
+    .map((c, idx) => ({c, idx}))
+    .sort((a,b) => (catIndex(a.c.category) - catIndex(b.c.category)) || (a.idx - b.idx))
+    .map(x => x.c);
+  let lastCategory = null;
+  sorted.forEach(c=>{
+    if(c.category !== lastCategory){
+      results.appendChild(h('div',{class:'section-label', style:'margin-top:4px;'}, c.category || '(カテゴリ未設定)'));
+      lastCategory = c.category;
+    }
+    results.appendChild(cardListItem(c));
+  });
 }
 
 /* =========================================================================
