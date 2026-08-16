@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<!-- GitHub Pages やホーム画面追加時にHTML/JSが古いまま表示されるのを防ぐため、
+     このページ自体はキャッシュしないようブラウザに指示する -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>電工二種 暗記カード</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -351,7 +356,11 @@ textarea.text-input{resize:vertical;font-family:var(--font-mono);font-size:12px;
 <div id="app"></div>
 <div class="toast" id="toast"></div>
 
-<script src="cards_data.js"></script>
+<script>
+// cards_data.js はブラウザ/ホーム画面キャッシュの影響を受けやすいため、
+// 読み込みのたびにキャッシュを回避するクエリパラメータを付与して取得する
+document.write('<scr' + 'ipt src="cards_data.js?v=' + Date.now() + '"></scr' + 'ipt>');
+</script>
 <script>
 /* =========================================================================
    電工二種 暗記カードアプリ — 単一ファイル実装
@@ -1779,7 +1788,10 @@ function sideContent(card, side){
 function screenStudy(){
   const root = h('div',{});
   if(!SESSION){ nav('home', {}, true); return h('div'); }
-  root.appendChild(topbar('学習中', `${SESSION.idx+1} / ${SESSION.queue.length}`, true));
+  const {card, mode} = currentQA();
+  const editBtn = h('button',{class:'fav-btn', onclick:()=>nav('carddetail', {id:card.id})},'✏️');
+  editBtn.style.display = SESSION.revealed ? '' : 'none';
+  root.appendChild(topbar('学習中', `${SESSION.idx+1} / ${SESSION.queue.length}`, true, editBtn));
   const s = h('div',{class:'screen'});
 
   const progress = h('div',{class:'study-progress'},[
@@ -1788,7 +1800,6 @@ function screenStudy(){
   ]);
   s.appendChild(progress);
 
-  const {card, mode} = currentQA();
   const stage = h('div',{class:'card-stage'});
   const fc = h('div',{class:'flashcard', id:'flashcard'});
   fc.appendChild(h('div',{class:'fc-tick tl'}));
@@ -1842,6 +1853,7 @@ function screenStudy(){
       renderAnswer(answerWrap, card, mode);
       const hint = fc.querySelector('.fc-hint'); if(hint) hint.remove();
       setJudgeEnabled(true);
+      editBtn.style.display = '';
     }
   });
 
@@ -2085,6 +2097,15 @@ function screenSettings(){
   s.appendChild(dataPanel);
   s.appendChild(h('button',{class:'btn', onclick:()=>nav('import')}, '📄 CSVインポート画面へ'));
   s.appendChild(h('button',{class:'btn', onclick:exportCardsCSV}, '⬆ カード内容をCSVで書き出す'));
+
+  s.appendChild(h('div',{class:'section-label'},'アプリの更新'));
+  const updatePanel = h('div',{class:'panel'});
+  updatePanel.appendChild(h('div',{style:'font-size:12px;color:var(--ink-dim);margin-bottom:10px;'},
+    'GitHub側のファイルを更新したのに反映されない場合、端末にキャッシュが残っている可能性があります。下のボタンでキャッシュを無視して読み込み直せます。'));
+  updatePanel.appendChild(h('button',{class:'btn', onclick:()=>{
+    location.href = location.pathname + '?_r=' + Date.now();
+  }}, '🔄 最新の状態に更新'));
+  s.appendChild(updatePanel);
 
   s.appendChild(h('div',{class:'section-label'},'危険な操作'));
   const dangerPanel = h('div',{class:'panel'});
