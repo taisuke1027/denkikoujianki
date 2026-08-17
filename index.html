@@ -1217,7 +1217,7 @@ function modeItem(name, count, onclick, arrowText){
    SCREEN: CATEGORY LIST / WEAK / UNLEARNED (selection screens before study)
    ========================================================================= */
 function screenCategories(){
-  const root = h('div',{});
+  const root = h('div',{id:'categories-root'});
   root.appendChild(topbar('カテゴリ別学習', null, true));
   const s = h('div',{class:'screen'});
   const catCards = {};
@@ -1233,6 +1233,7 @@ function screenCategories(){
   s.appendChild(list);
   s.appendChild(bottomNav('modes'));
   root.appendChild(s);
+  setTimeout(()=> attachSwipeBack(document.getElementById('categories-root')), 0);
   return root;
 }
 
@@ -1240,7 +1241,7 @@ function screenCategories(){
    SCREEN: 状況別学習 (5段階ティアから選んで学習)
    ========================================================================= */
 function screenTierSelect(){
-  const root = h('div',{});
+  const root = h('div',{id:'tierselect-root'});
   root.appendChild(topbar('ステータス別学習', null, true));
   const s = h('div',{class:'screen'});
   const buckets = classifyAll();
@@ -1261,6 +1262,7 @@ function screenTierSelect(){
   s.appendChild(list);
   s.appendChild(bottomNav('modes'));
   root.appendChild(s);
+  setTimeout(()=> attachSwipeBack(document.getElementById('tierselect-root')), 0);
   return root;
 }
 
@@ -1268,7 +1270,7 @@ function screenTierSelect(){
    SCREEN: 忘却曲線対応復習
    ========================================================================= */
 function screenForgetting(){
-  const root = h('div',{});
+  const root = h('div',{id:'forgetting-root'});
   root.appendChild(topbar('忘却曲線対応復習', null, true));
   const s = h('div',{class:'screen'});
   s.appendChild(h('div',{style:'font-size:12px;color:var(--ink-dim);margin-bottom:14px;'},
@@ -1281,6 +1283,7 @@ function screenForgetting(){
   s.appendChild(list);
   s.appendChild(bottomNav('modes'));
   root.appendChild(s);
+  setTimeout(()=> attachSwipeBack(document.getElementById('forgetting-root')), 0);
   return root;
 }
 
