@@ -215,8 +215,9 @@ textarea.text-input{resize:vertical;font-family:var(--font-mono);font-size:12px;
   background:var(--bg-elevated-2);border-color:var(--accent);transition:none;
 }
 .cli-draghandle{
-  flex-shrink:0;width:20px;text-align:center;color:var(--ink-dim);font-size:16px;
-  letter-spacing:-1px;line-height:1;touch-action:none;cursor:grab;padding:4px 0;
+  flex-shrink:0;width:30px;align-self:stretch;display:flex;align-items:center;justify-content:center;
+  color:var(--ink-dim);font-size:19px;letter-spacing:-1px;line-height:1;
+  touch-action:none;cursor:grab;margin:-10px 0;padding:10px 0;
 }
 .cli-draghandle.disabled{opacity:0.25;cursor:default;}
 .thumb{
@@ -1399,47 +1400,31 @@ function slideNeighborIntoPlace(el, oldRect){
   el.addEventListener('transitionend', function te(){ el.style.transition=''; el.removeEventListener('transitionend', te); });
 }
 function attachReorderGroup(itemEls, category){
-  // itemEls: そのカテゴリの card-list-item 要素配列(表示順)。ドラッグで並び替えた結果を CARDS に反映する。
-  const LONG_PRESS_MS = 450;
-  const MOVE_CANCEL_PX = 8;
+  // itemEls: そのカテゴリの card-list-item 要素配列(表示順)。
+  // ドラッグは左端の専用ハンドル(⠿)からのみ開始する。カード本体は常にネイティブスクロールに任せ、
+  // スクロールと長押し判定が競合しないようにする。
   let order = itemEls.slice(); // 現在の並び(生きたDOM参照)
 
   itemEls.forEach(item=>{
-    // phase: 'idle' | 'armed'(長押し判定待ち。ネイティブスクロールに任せている) | 'dragging'
-    let phase = 'idle';
-    let timer = null;
-    let startX=0, startY=0, startScrollY=0;
-    let onWindowScroll = null;
+    const handle = item.querySelector('.cli-draghandle');
+    if(!handle) return;
+    let dragging = false;
+    let startY = 0;
 
-    function cancelArm(){
-      clearTimeout(timer); timer = null;
-      if(onWindowScroll){ window.removeEventListener('scroll', onWindowScroll); onWindowScroll = null; }
-      phase = 'idle';
-    }
-    function onPointerDown(e){
+    function onHandleDown(e){
       if(!reorderingEnabled()) return;
       if(e.pointerType === 'mouse' && e.button !== 0) return;
-      startX = e.clientX; startY = e.clientY; startScrollY = window.scrollY;
-      phase = 'armed';
-      // ページが実際にスクロールし始めたら、ネイティブスクロールを優先して長押し判定を即中断する
-      onWindowScroll = ()=>{ if(phase==='armed') cancelArm(); };
-      window.addEventListener('scroll', onWindowScroll, {passive:true});
-      timer = setTimeout(()=>{ if(phase==='armed') beginDrag(e); }, LONG_PRESS_MS);
-      item.addEventListener('pointermove', onPointerMove);
-      item.addEventListener('pointerup', onPointerUp);
-      item.addEventListener('pointercancel', onPointerUp);
+      e.preventDefault();
+      startY = e.clientY;
+      dragging = true;
+      item.classList.add('dragging');
+      handle.setPointerCapture && handle.setPointerCapture(e.pointerId);
+      handle.addEventListener('pointermove', onHandleMove);
+      handle.addEventListener('pointerup', onHandleUp);
+      handle.addEventListener('pointercancel', onHandleUp);
     }
-    function onPointerMove(e){
-      if(phase === 'idle') return;
-      if(phase === 'armed'){
-        const dx = e.clientX-startX, dy = e.clientY-startY;
-        if(Math.hypot(dx,dy) > MOVE_CANCEL_PX){
-          // 指が動いた => スクロールの意図とみなし、ネイティブスクロールに完全に委ねる
-          cancelArm();
-        }
-        return;
-      }
-      // phase === 'dragging'
+    function onHandleMove(e){
+      if(!dragging) return;
       e.preventDefault();
       const curY = e.clientY;
       item.style.transform = `translateY(${curY-startY}px)`;
@@ -1483,41 +1468,25 @@ function attachReorderGroup(itemEls, category){
       const newTop = item.getBoundingClientRect().top;
       startY += (newTop - prevTop);
     }
-    function beginDrag(e){
-      if(phase !== 'armed') return;
-      // 保険: 長押し判定が成立する直前にスクロールが起きていたら(scrollイベントの取りこぼし対策)ドラッグにしない
-      if(Math.abs(window.scrollY - startScrollY) > 2){ cancelArm(); return; }
-      if(onWindowScroll){ window.removeEventListener('scroll', onWindowScroll); onWindowScroll = null; }
-      phase = 'dragging';
-      item.classList.add('dragging');
-      // ここからは本格的なドラッグなので、以降のポインター移動を確実に追従させる
-      item.setPointerCapture && item.setPointerCapture(e.pointerId);
+    function onHandleUp(e){
+      if(!dragging) return;
+      dragging = false;
+      handle.removeEventListener('pointermove', onHandleMove);
+      handle.removeEventListener('pointerup', onHandleUp);
+      handle.removeEventListener('pointercancel', onHandleUp);
+      handle.releasePointerCapture && handle.hasPointerCapture && handle.hasPointerCapture(e.pointerId) && handle.releasePointerCapture(e.pointerId);
+      item.classList.remove('dragging');
+      // ドロップ位置へふわっと収まるアニメーション
+      item.style.transition = 'transform 160ms cubic-bezier(.22,.8,.28,1)';
+      item.style.transform = '';
+      setTimeout(()=>{ item.style.transition=''; }, 180);
+      const newIds = order.map(el=>el.dataset.cardId);
+      reorderCategory(category, newIds);
+      saveCards();
     }
-    function onPointerUp(e){
-      const wasDragging = (phase === 'dragging');
-      cancelArm();
-      item.removeEventListener('pointermove', onPointerMove);
-      item.removeEventListener('pointerup', onPointerUp);
-      item.removeEventListener('pointercancel', onPointerUp);
-      if(wasDragging){
-        item.releasePointerCapture && item.hasPointerCapture && item.hasPointerCapture(e.pointerId) && item.releasePointerCapture(e.pointerId);
-        item.classList.remove('dragging');
-        // ドロップ位置へふわっと収まるアニメーション
-        item.style.transition = 'transform 160ms cubic-bezier(.22,.8,.28,1)';
-        item.style.transform = '';
-        setTimeout(()=>{ item.style.transition=''; }, 180);
-        const newIds = order.map(el=>el.dataset.cardId);
-        reorderCategory(category, newIds);
-        saveCards();
-        // ドラッグ直後に発火する click で誤って(ドラッグしたカード自身を含む)
-        // 詳細画面が開いてしまわないよう、次の click が一巡するまで無効化する。
-        // (documentのクリックリスナーで確実に解除されるが、万一clickが発火しない
-        //  ケースに備えて保険のタイムアウトも設定しておく)
-        CARDLIST_DRAG_SUPPRESS_CLICK = true;
-        setTimeout(()=>{ CARDLIST_DRAG_SUPPRESS_CLICK = false; }, 500);
-      }
-    }
-    item.addEventListener('pointerdown', onPointerDown);
+    // ハンドルでのタップ/ドラッグがカード詳細への遷移を引き起こさないようにする
+    handle.addEventListener('click', e=>{ e.preventDefault(); e.stopPropagation(); });
+    handle.addEventListener('pointerdown', onHandleDown);
   });
 }
 function reorderCategory(category, newOrderIds){
