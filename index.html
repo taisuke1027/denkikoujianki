@@ -1347,7 +1347,10 @@ function screenUnlearned(){
 let CARDLIST_QUERY = '';
 let CARDLIST_FILTERS = { name:false, photo:false, desc:false, symbol:false };
 let CARDLIST_FAV_FILTER = null; // null | 'fav' | 'nonfav'
-let CARDLIST_DRAG_SUPPRESS_CLICK = false; // ドラッグ直後の誤クリック(別カードの詳細が開く)を防ぐ
+let CARDLIST_DRAG_SUPPRESS_CLICK = false; // ドラッグ直後の誤クリック(カード詳細が開く)を防ぐ
+// ドラッグ終了直後に発生する click は、その1回だけ無視してから解除する。
+// (setTimeoutでの解除はタイミングが不確実なため、click のバブル完了を確実な合図として使う)
+document.addEventListener('click', ()=>{ CARDLIST_DRAG_SUPPRESS_CLICK = false; }, false);
 function reorderingEnabled(){
   const f = CARDLIST_FILTERS;
   return !CARDLIST_QUERY.trim() && !CARDLIST_FAV_FILTER && !(f.name||f.photo||f.desc||f.symbol);
@@ -1502,10 +1505,12 @@ function attachReorderGroup(itemEls, category){
         const newIds = order.map(el=>el.dataset.cardId);
         reorderCategory(category, newIds);
         saveCards();
-        // ドラッグ直後、入れ替わった別カードで click が発火して誤って詳細画面が
-        // 開いてしまわないよう、この一瞬だけ一覧内の全カードのクリックを無効化する
+        // ドラッグ直後に発火する click で誤って(ドラッグしたカード自身を含む)
+        // 詳細画面が開いてしまわないよう、次の click が一巡するまで無効化する。
+        // (documentのクリックリスナーで確実に解除されるが、万一clickが発火しない
+        //  ケースに備えて保険のタイムアウトも設定しておく)
         CARDLIST_DRAG_SUPPRESS_CLICK = true;
-        setTimeout(()=>{ CARDLIST_DRAG_SUPPRESS_CLICK = false; }, 0);
+        setTimeout(()=>{ CARDLIST_DRAG_SUPPRESS_CLICK = false; }, 500);
       }
       phase = 'idle';
     }
