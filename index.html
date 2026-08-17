@@ -208,7 +208,17 @@ textarea.text-input{resize:vertical;font-family:var(--font-mono);font-size:12px;
 .card-list-item{
   display:flex;gap:12px;align-items:center;padding:10px;border-radius:var(--radius-sm);
   background:var(--bg-elevated);border:1px solid var(--line);cursor:pointer;
+  touch-action:pan-y;user-select:none;-webkit-user-select:none;
 }
+.card-list-item.dragging{
+  opacity:0.92;box-shadow:0 10px 26px -6px rgba(0,0,0,0.55);z-index:5;position:relative;
+  background:var(--bg-elevated-2);border-color:var(--accent);transition:none;
+}
+.cli-draghandle{
+  flex-shrink:0;width:20px;text-align:center;color:var(--ink-dim);font-size:16px;
+  letter-spacing:-1px;line-height:1;touch-action:none;cursor:grab;padding:4px 0;
+}
+.cli-draghandle.disabled{opacity:0.25;cursor:default;}
 .thumb{
   width:52px;height:52px;border-radius:10px;background:var(--bg-elevated-2);flex-shrink:0;
   display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--line);
@@ -1337,10 +1347,17 @@ function screenUnlearned(){
 let CARDLIST_QUERY = '';
 let CARDLIST_FILTERS = { name:false, photo:false, desc:false, symbol:false };
 let CARDLIST_FAV_FILTER = null; // null | 'fav' | 'nonfav'
+function reorderingEnabled(){
+  const f = CARDLIST_FILTERS;
+  return !CARDLIST_QUERY.trim() && !CARDLIST_FAV_FILTER && !(f.name||f.photo||f.desc||f.symbol);
+}
 function cardListItem(card){
   const rec = LEARNING[card.id];
   const tier = classifyTier(rec);
   const item = h('div',{class:'card-list-item', onclick:()=>nav('carddetail', {id:card.id})});
+  item.dataset.cardId = card.id;
+  const handle = h('span',{class:'cli-draghandle'+(reorderingEnabled()?'':' disabled')}, '⠿');
+  item.appendChild(handle);
   const thumb = h('div',{class:'thumb'});
   if(card.photoImage) thumb.appendChild(h('img',{src:'', alt:''}));
   item.appendChild(thumb);
@@ -1356,6 +1373,108 @@ function cardListItem(card){
   item.appendChild(h('span',{class:'badge tier-'+tier}, TIER_LABELS[tier]));
   return item;
 }
+
+/* ---------------------------------------------------------------------
+   カード一覧: 長押し+ドラッグによる並べ替え(同一カテゴリ内のみ)
+--------------------------------------------------------------------- */
+function attachReorderGroup(itemEls, category){
+  // itemEls: そのカテゴリの card-list-item 要素配列(表示順)。ドラッグで並び替えた結果を CARDS に反映する。
+  const LONG_PRESS_MS = 380;
+  const MOVE_CANCEL_PX = 8;
+  let order = itemEls.slice(); // 現在の並び(生きたDOM参照)
+
+  itemEls.forEach(item=>{
+    let timer = null, pressing = false, dragging = false;
+    let startX=0, startY=0, startTop=0, pointerId=null;
+
+    function cleanupPress(){
+      clearTimeout(timer); timer = null; pressing = false;
+    }
+    function onPointerDown(e){
+      if(!reorderingEnabled()) return;
+      if(e.pointerType === 'mouse' && e.button !== 0) return;
+      startX = e.clientX; startY = e.clientY;
+      pressing = true; dragging = false;
+      timer = setTimeout(()=> beginDrag(e), LONG_PRESS_MS);
+      item.addEventListener('pointermove', onPointerMove);
+      item.addEventListener('pointerup', onPointerUp);
+      item.addEventListener('pointercancel', onPointerUp);
+    }
+    function onPointerMove(e){
+      if(!pressing) return;
+      const dx = e.clientX-startX, dy = e.clientY-startY;
+      if(!dragging){
+        if(Math.hypot(dx,dy) > MOVE_CANCEL_PX){ cleanupPress(); }
+        return;
+      }
+      e.preventDefault();
+      const curY = e.clientY;
+      const deltaFromStart = curY - startY;
+      item.style.transform = `translateY(${deltaFromStart}px)`;
+      // 隣接要素との入れ替え判定(重心が相手の中心を越えたら swap)
+      const idx = order.indexOf(item);
+      const rect = item.getBoundingClientRect();
+      const centerY = rect.top + rect.height/2;
+      const next = order[idx+1];
+      const prev = order[idx-1];
+      if(next){
+        const r2 = next.getBoundingClientRect();
+        if(centerY > r2.top + r2.height/2){
+          const prevTop = item.getBoundingClientRect().top;
+          item.parentNode.insertBefore(next, item);
+          order[idx] = next; order[idx+1] = item;
+          const newTop = item.getBoundingClientRect().top;
+          startY += (newTop - prevTop);
+          item.style.transform = `translateY(${curY-startY}px)`;
+        }
+      } else if(prev){
+        const r2 = prev.getBoundingClientRect();
+        if(centerY < r2.top + r2.height/2){
+          const prevTop = item.getBoundingClientRect().top;
+          item.parentNode.insertBefore(item, prev);
+          order[idx] = prev; order[idx-1] = item;
+          const newTop = item.getBoundingClientRect().top;
+          startY += (newTop - prevTop);
+          item.style.transform = `translateY(${curY-startY}px)`;
+        }
+      }
+    }
+    function beginDrag(e){
+      if(!pressing) return;
+      dragging = true;
+      item.classList.add('dragging');
+      item.setPointerCapture && item.setPointerCapture(e.pointerId);
+      // このジェスチャで発火する click を1回だけ無効化(長押し後の誤タップ遷移を防ぐ)
+      const swallowClick = (ce)=>{ ce.preventDefault(); ce.stopPropagation(); item.removeEventListener('click', swallowClick, true); };
+      item.addEventListener('click', swallowClick, true);
+    }
+    function onPointerUp(e){
+      cleanupPress();
+      item.removeEventListener('pointermove', onPointerMove);
+      item.removeEventListener('pointerup', onPointerUp);
+      item.removeEventListener('pointercancel', onPointerUp);
+      if(dragging){
+        dragging = false;
+        item.classList.remove('dragging');
+        item.style.transform = '';
+        const newIds = order.map(el=>el.dataset.cardId);
+        reorderCategory(category, newIds);
+        saveCards();
+      }
+    }
+    item.addEventListener('pointerdown', onPointerDown);
+  });
+}
+function reorderCategory(category, newOrderIds){
+  const byId = {};
+  CARDS.forEach(c=>{ byId[c.id]=c; });
+  let ptr = 0;
+  CARDS = CARDS.map(c=>{
+    if(c.category === category) return byId[newOrderIds[ptr++]];
+    return c;
+  });
+}
+
 async function loadThumb(thumbEl, card){
   const img = await getImage(card.id, 'photo') || await getImage(card.id, 'symbol');
   if(img){
@@ -1453,13 +1572,20 @@ function renderCardListResults(){
     .sort((a,b) => (catIndex(a.c.category) - catIndex(b.c.category)) || (a.idx - b.idx))
     .map(x => x.c);
   let lastCategory = null;
+  let groupEls = [];
+  const flushGroup = ()=>{ if(lastCategory !== null && groupEls.length) attachReorderGroup(groupEls, lastCategory); };
   sorted.forEach(c=>{
     if(c.category !== lastCategory){
+      flushGroup();
       results.appendChild(h('div',{class:'section-label', style:'margin-top:4px;'}, c.category || '(カテゴリ未設定)'));
       lastCategory = c.category;
+      groupEls = [];
     }
-    results.appendChild(cardListItem(c));
+    const item = cardListItem(c);
+    results.appendChild(item);
+    groupEls.push(item);
   });
+  flushGroup();
 }
 
 /* =========================================================================
