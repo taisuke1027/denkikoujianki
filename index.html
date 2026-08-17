@@ -208,7 +208,7 @@ textarea.text-input{resize:vertical;font-family:var(--font-mono);font-size:12px;
 .card-list-item{
   display:flex;gap:12px;align-items:center;padding:10px;border-radius:var(--radius-sm);
   background:var(--bg-elevated);border:1px solid var(--line);cursor:pointer;
-  touch-action:pan-y;user-select:none;-webkit-user-select:none;
+  touch-action:none;user-select:none;-webkit-user-select:none;
 }
 .card-list-item.dragging{
   opacity:0.92;box-shadow:0 10px 26px -6px rgba(0,0,0,0.55);z-index:5;position:relative;
@@ -1398,68 +1398,89 @@ function attachReorderGroup(itemEls, category){
   let order = itemEls.slice(); // 現在の並び(生きたDOM参照)
 
   itemEls.forEach(item=>{
-    let timer = null, pressing = false, dragging = false;
-    let startX=0, startY=0, startTop=0, pointerId=null;
+    // phase: 'idle' | 'armed'(長押し判定待ち) | 'scrolling'(長押し前に動いたので手動スクロールに切替) | 'dragging'
+    let phase = 'idle';
+    let timer = null;
+    let startX=0, startY=0, lastY=0;
 
-    function cleanupPress(){
-      clearTimeout(timer); timer = null; pressing = false;
-    }
     function onPointerDown(e){
       if(!reorderingEnabled()) return;
       if(e.pointerType === 'mouse' && e.button !== 0) return;
-      startX = e.clientX; startY = e.clientY;
-      pressing = true; dragging = false;
-      timer = setTimeout(()=> beginDrag(e), LONG_PRESS_MS);
+      startX = e.clientX; startY = e.clientY; lastY = e.clientY;
+      phase = 'armed';
+      timer = setTimeout(()=>{ if(phase==='armed') beginDrag(e); }, LONG_PRESS_MS);
       item.addEventListener('pointermove', onPointerMove);
       item.addEventListener('pointerup', onPointerUp);
       item.addEventListener('pointercancel', onPointerUp);
     }
     function onPointerMove(e){
-      if(!pressing) return;
-      const dx = e.clientX-startX, dy = e.clientY-startY;
-      if(!dragging){
-        if(Math.hypot(dx,dy) > MOVE_CANCEL_PX){ cleanupPress(); }
+      if(phase === 'idle') return;
+      if(phase === 'armed'){
+        const dx = e.clientX-startX, dy = e.clientY-startY;
+        if(Math.hypot(dx,dy) > MOVE_CANCEL_PX){
+          // 長押しが確定する前に指が動いた => カード本体は touch-action:none のため、
+          // ここからは自前でスクロールを継続させる(ネイティブスクロールの代替)
+          clearTimeout(timer); timer = null;
+          phase = 'scrolling';
+          const dyStep = startY - e.clientY; // 判定に使った移動量も取りこぼさず反映
+          if(dyStep) window.scrollBy(0, dyStep);
+          lastY = e.clientY;
+        }
         return;
       }
+      if(phase === 'scrolling'){
+        const dyStep = lastY - e.clientY;
+        if(dyStep) window.scrollBy(0, dyStep);
+        lastY = e.clientY;
+        return;
+      }
+      // phase === 'dragging'
       e.preventDefault();
       const curY = e.clientY;
-      const deltaFromStart = curY - startY;
-      item.style.transform = `translateY(${deltaFromStart}px)`;
-      // 隣接要素との入れ替え判定(重心が相手の中心を越えたら swap)
-      const idx = order.indexOf(item);
-      const rect = item.getBoundingClientRect();
-      const centerY = rect.top + rect.height/2;
-      const next = order[idx+1];
-      const prev = order[idx-1];
-      if(next){
-        const r2 = next.getBoundingClientRect();
-        if(centerY > r2.top + r2.height/2){
-          const prevTop = item.getBoundingClientRect().top;
-          const nextOldRect = r2;
-          item.parentNode.insertBefore(next, item);
-          slideNeighborIntoPlace(next, nextOldRect);
-          order[idx] = next; order[idx+1] = item;
-          const newTop = item.getBoundingClientRect().top;
-          startY += (newTop - prevTop);
-          item.style.transform = `translateY(${curY-startY}px)`;
+      item.style.transform = `translateY(${curY-startY}px)`;
+      processSwaps(curY);
+    }
+    function processSwaps(curY){
+      // 1回の移動量が大きい場合でも、必要な入れ替えを全て連鎖的に処理する
+      let safety = 0;
+      while(safety++ < 50){
+        const idx = order.indexOf(item);
+        const rect = item.getBoundingClientRect();
+        const centerY = rect.top + rect.height/2;
+        const next = order[idx+1];
+        const prev = order[idx-1];
+        if(next){
+          const r2 = next.getBoundingClientRect();
+          if(centerY > r2.top + r2.height/2){
+            doSwap(next, idx, idx+1);
+            item.style.transform = `translateY(${curY-startY}px)`;
+            continue;
+          }
         }
-      } else if(prev){
-        const r2 = prev.getBoundingClientRect();
-        if(centerY < r2.top + r2.height/2){
-          const prevTop = item.getBoundingClientRect().top;
-          const prevOldRect = r2;
-          item.parentNode.insertBefore(item, prev);
-          slideNeighborIntoPlace(prev, prevOldRect);
-          order[idx] = prev; order[idx-1] = item;
-          const newTop = item.getBoundingClientRect().top;
-          startY += (newTop - prevTop);
-          item.style.transform = `translateY(${curY-startY}px)`;
+        if(prev){
+          const r2 = prev.getBoundingClientRect();
+          if(centerY < r2.top + r2.height/2){
+            doSwap(prev, idx, idx-1);
+            item.style.transform = `translateY(${curY-startY}px)`;
+            continue;
+          }
         }
+        break;
       }
     }
+    function doSwap(other, itemIdx, otherIdx){
+      const otherOldRect = other.getBoundingClientRect();
+      const prevTop = item.getBoundingClientRect().top;
+      if(otherIdx > itemIdx) item.parentNode.insertBefore(other, item);
+      else item.parentNode.insertBefore(item, other);
+      slideNeighborIntoPlace(other, otherOldRect);
+      order[itemIdx] = other; order[otherIdx] = item;
+      const newTop = item.getBoundingClientRect().top;
+      startY += (newTop - prevTop);
+    }
     function beginDrag(e){
-      if(!pressing) return;
-      dragging = true;
+      if(phase !== 'armed') return;
+      phase = 'dragging';
       item.classList.add('dragging');
       item.setPointerCapture && item.setPointerCapture(e.pointerId);
       // このジェスチャで発火する click を1回だけ無効化(長押し後の誤タップ遷移を防ぐ)
@@ -1467,12 +1488,11 @@ function attachReorderGroup(itemEls, category){
       item.addEventListener('click', swallowClick, true);
     }
     function onPointerUp(e){
-      cleanupPress();
+      clearTimeout(timer); timer = null;
       item.removeEventListener('pointermove', onPointerMove);
       item.removeEventListener('pointerup', onPointerUp);
       item.removeEventListener('pointercancel', onPointerUp);
-      if(dragging){
-        dragging = false;
+      if(phase === 'dragging'){
         item.classList.remove('dragging');
         // ドロップ位置へふわっと収まるアニメーション
         item.style.transition = 'transform 160ms cubic-bezier(.22,.8,.28,1)';
@@ -1482,6 +1502,7 @@ function attachReorderGroup(itemEls, category){
         reorderCategory(category, newIds);
         saveCards();
       }
+      phase = 'idle';
     }
     item.addEventListener('pointerdown', onPointerDown);
   });
