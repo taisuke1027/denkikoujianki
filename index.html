@@ -1377,6 +1377,20 @@ function cardListItem(card){
 /* ---------------------------------------------------------------------
    カード一覧: 長押し+ドラッグによる並べ替え(同一カテゴリ内のみ)
 --------------------------------------------------------------------- */
+function slideNeighborIntoPlace(el, oldRect){
+  const newRect = el.getBoundingClientRect();
+  const dy = oldRect.top - newRect.top;
+  if(!dy) return;
+  el.style.transition = 'none';
+  el.style.transform = `translateY(${dy}px)`;
+  // 強制リフローしてから遷移を有効化(FLIPアニメーション)
+  void el.offsetHeight;
+  requestAnimationFrame(()=>{
+    el.style.transition = 'transform 200ms cubic-bezier(.22,.8,.28,1)';
+    el.style.transform = '';
+  });
+  el.addEventListener('transitionend', function te(){ el.style.transition=''; el.removeEventListener('transitionend', te); });
+}
 function attachReorderGroup(itemEls, category){
   // itemEls: そのカテゴリの card-list-item 要素配列(表示順)。ドラッグで並び替えた結果を CARDS に反映する。
   const LONG_PRESS_MS = 380;
@@ -1421,7 +1435,9 @@ function attachReorderGroup(itemEls, category){
         const r2 = next.getBoundingClientRect();
         if(centerY > r2.top + r2.height/2){
           const prevTop = item.getBoundingClientRect().top;
+          const nextOldRect = r2;
           item.parentNode.insertBefore(next, item);
+          slideNeighborIntoPlace(next, nextOldRect);
           order[idx] = next; order[idx+1] = item;
           const newTop = item.getBoundingClientRect().top;
           startY += (newTop - prevTop);
@@ -1431,7 +1447,9 @@ function attachReorderGroup(itemEls, category){
         const r2 = prev.getBoundingClientRect();
         if(centerY < r2.top + r2.height/2){
           const prevTop = item.getBoundingClientRect().top;
+          const prevOldRect = r2;
           item.parentNode.insertBefore(item, prev);
+          slideNeighborIntoPlace(prev, prevOldRect);
           order[idx] = prev; order[idx-1] = item;
           const newTop = item.getBoundingClientRect().top;
           startY += (newTop - prevTop);
@@ -1456,7 +1474,10 @@ function attachReorderGroup(itemEls, category){
       if(dragging){
         dragging = false;
         item.classList.remove('dragging');
+        // ドロップ位置へふわっと収まるアニメーション
+        item.style.transition = 'transform 160ms cubic-bezier(.22,.8,.28,1)';
         item.style.transform = '';
+        setTimeout(()=>{ item.style.transition=''; }, 180);
         const newIds = order.map(el=>el.dataset.cardId);
         reorderCategory(category, newIds);
         saveCards();
