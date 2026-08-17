@@ -1416,6 +1416,10 @@ function attachReorderGroup(itemEls, category){
       startX = e.clientX; startY = e.clientY; lastY = e.clientY;
       phase = 'armed';
       timer = setTimeout(()=>{ if(phase==='armed') beginDrag(e); }, LONG_PRESS_MS);
+      // 判定中(長押し前)の移動でポインターを見失わないよう、この時点で捕捉しておく
+      // (捕捉しないと、指が最初のカードの外に出た瞬間にイベントが来なくなり、
+      //  手動スクロールがガタつく原因になる)
+      item.setPointerCapture && item.setPointerCapture(e.pointerId);
       item.addEventListener('pointermove', onPointerMove);
       item.addEventListener('pointerup', onPointerUp);
       item.addEventListener('pointercancel', onPointerUp);
@@ -1429,6 +1433,10 @@ function attachReorderGroup(itemEls, category){
           // ここからは自前でスクロールを継続させる(ネイティブスクロールの代替)
           clearTimeout(timer); timer = null;
           phase = 'scrolling';
+          // このジェスチャは「スクロール」であり「タップ」ではないため、
+          // 離した際に click でカード詳細が開かないよう抑制しておく
+          CARDLIST_DRAG_SUPPRESS_CLICK = true;
+          setTimeout(()=>{ CARDLIST_DRAG_SUPPRESS_CLICK = false; }, 500);
           const dyStep = startY - e.clientY; // 判定に使った移動量も取りこぼさず反映
           if(dyStep) window.scrollBy(0, dyStep);
           lastY = e.clientY;
@@ -1489,13 +1497,13 @@ function attachReorderGroup(itemEls, category){
       if(phase !== 'armed') return;
       phase = 'dragging';
       item.classList.add('dragging');
-      item.setPointerCapture && item.setPointerCapture(e.pointerId);
     }
     function onPointerUp(e){
       clearTimeout(timer); timer = null;
       item.removeEventListener('pointermove', onPointerMove);
       item.removeEventListener('pointerup', onPointerUp);
       item.removeEventListener('pointercancel', onPointerUp);
+      item.releasePointerCapture && item.hasPointerCapture && item.hasPointerCapture(e.pointerId) && item.releasePointerCapture(e.pointerId);
       if(phase === 'dragging'){
         item.classList.remove('dragging');
         // ドロップ位置へふわっと収まるアニメーション
