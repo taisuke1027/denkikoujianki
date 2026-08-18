@@ -2,20 +2,21 @@
 
 第2種電気工事士試験の「写真鑑別」「図記号鑑別」を学習するための、ブラウザだけで動くスマホ向け暗記カードアプリです。ビルド不要・依存ライブラリなしの単一HTMLアプリです。
 
-プリインストールカードが10枚含まれています。CSVインポート、またはアプリ内の「＋新規カードを追加」から、自分でカードを追加していくこともできます。
+プリインストールカードが113枚含まれています。CSVインポート、またはアプリ内の「＋新規カードを追加」から、自分でカードを追加していくこともできます。
 
 ## ファイル構成
 ```
 index.html       アプリ本体
-cards_data.js    プリインストールされたカードデータ(10枚・画像込み)。index.htmlと必ず同じフォルダに置いてください
+cards_data.js    プリインストールされたカードデータ(113枚・画像込み)。index.htmlと必ず同じフォルダに置いてください
+icon.png         共有シート・ホーム画面追加・ブラウザタブに表示されるアプリアイコン。index.htmlと同じフォルダに置いてください
 sample_cards.csv 追加でCSVインポートする場合のフォーマット例(任意)
 ```
 
-⚠️ `index.html` と `cards_data.js` は2ファイルセットです。両方を同じフォルダにダウンロードしてから `index.html` を開いてください。
+⚠️ `index.html` と `cards_data.js` と `icon.png` は3ファイルセットです。すべて同じフォルダにダウンロードしてから `index.html` を開いてください。
 
 ## GitHub Pagesで公開する
 
-1. このリポジトリをGitHubに作成し、`index.html`(と使う場合は`sample_cards.csv`)をルート直下にそのままpush
+1. このリポジトリをGitHubに作成し、`index.html`・`cards_data.js`・`icon.png`(と使う場合は`sample_cards.csv`)をルート直下にそのままpush
 2. リポジトリの **Settings → Pages** を開く
 3. "Build and deployment" の Source を **Deploy from a branch** にし、Branch を `main` / `/(root)` に設定して Save
 4. 数分後、`https://<ユーザー名>.github.io/<リポジトリ名>/` でアプリにアクセスできます
