@@ -210,6 +210,9 @@ body{
 .mode-item .arrow{font-family:var(--font-mono);color:var(--accent);font-size:13px;white-space:nowrap;}
 .mode-item .name{font-weight:500;font-size:14px;}
 .mode-item .count{font-family:var(--font-mono);font-size:11px;color:var(--ink-dim);}
+.mode-item.forgetting-done{opacity:0.6;}
+.mode-item.forgetting-done .count{color:var(--teal);}
+.done-check{color:var(--teal);font-size:16px;font-weight:700;}
 
 .cat-item{flex-direction:column;align-items:stretch;gap:8px;}
 .cat-item-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
@@ -558,7 +561,8 @@ const DEFAULT_SETTINGS = {
   randomOrder: true,          // ランダム性を出題順に反映
   enabledModes: {             // 出題方向ごとの有効/無効(将来拡張しやすい構造)
     symbol2name:false, photo2name:true, desc2name:false, name2desc:false
-  }
+  },
+  forgettingCompletions: {}   // { [経過日数]: 'YYYY-MM-DD' } その日数の復習を完了した日付(忘却曲線対応復習)
 };
 
 let CARDS = [];        // カードマスターデータ
@@ -627,8 +631,21 @@ function forgettingCardsForDays(days){
     return d !== null && d >= days;
   });
 }
+function todayDateStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function isForgettingCompletedToday(days){
+  const map = SETTINGS.forgettingCompletions;
+  return !!(map && map[days] === todayDateStr());
+}
+function markForgettingCompletedToday(days){
+  if(!SETTINGS.forgettingCompletions) SETTINGS.forgettingCompletions = {};
+  SETTINGS.forgettingCompletions[days] = todayDateStr();
+}
 function forgettingHasAny(){
-  return forgettingCardsForDays(FORGETTING_DAYS[0]).length > 0;
+  // 対象カードがあり、かつ今日まだその日数の復習を完了していないものが1つでもあればアラート対象
+  return FORGETTING_DAYS.some(d => forgettingCardsForDays(d).length > 0 && !isForgettingCompletedToday(d));
 }
 
 async function loadAll(){
@@ -1324,7 +1341,15 @@ function screenForgetting(){
   const list = h('div',{class:'mode-list'});
   FORGETTING_DAYS.forEach(days=>{
     const count = forgettingCardsForDays(days).length;
-    list.appendChild(modeItem(`${days}日後の復習`, `${count}枚`, ()=>startSession('forgetting', null, days)));
+    const done = count > 0 && isForgettingCompletedToday(days);
+    const item = h('div',{class:'mode-item'+(done?' forgetting-done':''), onclick:()=>startSession('forgetting', null, days)},[
+      h('div',{},[
+        h('div',{class:'name'}, `${days}日後の復習`),
+        h('div',{class:'count'}, done ? '本日分 完了' : `${count}枚`)
+      ]),
+      done ? h('span',{class:'done-check'}, '✓') : h('div',{class:'arrow'}, '▶')
+    ]);
+    list.appendChild(item);
   });
   s.appendChild(list);
   s.appendChild(bottomNav('modes'));
@@ -2079,7 +2104,7 @@ function startSession(kind, fixedModeId, category, limit){
   const queue = buildQueue(pool, count, kind==='single' ? fixedModeId : null);
   if(!queue.length){ showToast('出題可能なカードがありません(画像未登録の可能性)'); return; }
 
-  SESSION = { queue, idx:0, results:[], revealed:false, kind };
+  SESSION = { queue, idx:0, results:[], revealed:false, kind, forgettingDays: (kind==='forgetting' ? category : null) };
   nav('study');
 }
 
@@ -2280,6 +2305,10 @@ async function judge(isCorrect){
   SESSION.idx++;
   SESSION.revealed = false;
   if(SESSION.idx >= SESSION.queue.length){
+    if(SESSION.kind === 'forgetting' && SESSION.forgettingDays){
+      markForgettingCompletedToday(SESSION.forgettingDays);
+      await saveSettings();
+    }
     nav('result', {}, true);
   } else {
     render();
