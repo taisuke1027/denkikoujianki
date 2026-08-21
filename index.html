@@ -223,6 +223,31 @@ body{
 .cat-legend-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0;}
 .cat-legend-count{font-family:var(--font-mono);color:var(--ink);font-weight:700;}
 
+/* 学習履歴: カレンダー */
+.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.cal-nav-btn{
+  width:32px;height:32px;border-radius:9px;border:1px solid var(--line);
+  background:var(--bg-elevated-2);color:var(--ink);font-size:17px;cursor:pointer;line-height:1;
+}
+.cal-nav-btn:active{transform:scale(0.94);}
+.cal-nav-label{font-family:var(--font-display);font-weight:700;font-size:14px;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;touch-action:pan-y;}
+.cal-weekday{text-align:center;font-size:10px;color:var(--ink-dim);padding-bottom:4px;}
+.cal-cell{
+  aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  position:relative;border-radius:8px;background:rgba(255,255,255,0.03);
+}
+.cal-cell.empty{background:none;}
+.cal-cell.today{box-shadow:inset 0 0 0 1.5px var(--accent);}
+.cal-daynum{font-size:10.5px;color:var(--ink-dim);}
+.cal-cell.today .cal-daynum{color:var(--accent);font-weight:700;}
+.cal-stamp{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-14deg);
+  color:var(--danger);border:1.5px solid var(--danger);border-radius:5px;
+  font-size:10px;font-weight:900;padding:0 2px;line-height:1.4;opacity:0.92;
+  background:rgba(192,69,58,0.08);
+}
+
 .chip-row{display:flex;flex-wrap:wrap;gap:8px;}
 .chip{
   padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg-elevated);
@@ -568,6 +593,7 @@ const DEFAULT_SETTINGS = {
 let CARDS = [];        // カードマスターデータ
 let LEARNING = {};      // { [cardId]: LearningRecord }
 let SETTINGS = {...DEFAULT_SETTINGS};
+let STUDY_DAYS = {};    // { 'YYYY-MM-DD': true } 学習(判定)を1回でも行った日の記録(履歴カレンダー用)
 let IMAGE_CACHE = {};   // { "cardId:photo": dataUrl } メモリキャッシュ(遅延読み込み用)
 
 // 出題方向の定義。将来の拡張(写真⇄記号 等)もこの配列に足すだけで対応できる。
@@ -657,6 +683,7 @@ async function loadAll(){
   CARDS = await storeGetJSON('cards', []);
   LEARNING = await storeGetJSON('learning', {});
   SETTINGS = Object.assign({...DEFAULT_SETTINGS}, await storeGetJSON('settings', {}));
+  STUDY_DAYS = await storeGetJSON('study_days', {});
   // 既存カードが持つカテゴリを選択肢に反映(前回セッションで追加したカテゴリも復元される)
   CARDS.forEach(c=>{ if(c.category && !CATEGORY_LIST.includes(c.category)) CATEGORY_LIST.push(c.category); });
   // 2回目以降の起動: cards_data.js が更新されていれば、ユーザーが編集していない
@@ -740,6 +767,7 @@ async function syncDefaultDeck(){
 async function saveCards(){ await storeSetJSON('cards', CARDS); }
 async function saveLearning(){ await storeSetJSON('learning', LEARNING); }
 async function saveSettings(){ await storeSetJSON('settings', SETTINGS); }
+async function saveStudyDays(){ await storeSetJSON('study_days', STUDY_DAYS); }
 
 async function getImage(cardId, kind){ // kind: 'photo' | 'symbol'
   const cacheKey = cardId+':'+kind;
@@ -1188,7 +1216,7 @@ function screenHome(){
   s.appendChild(statusPanel);
 
   s.appendChild(h('button',{class:'cta-home', onclick:()=>startSession('omakase')},[
-    'おまかせ学習', h('span',{class:'sub'}, `全${total}枚から優先度順に出題`)
+    'おまかせ学習', h('span',{class:'sub'}, '「未学習」から「覚えた」までを優先度順に出題')
   ]));
 
   s.appendChild(h('button',{class:'cta-home', onclick:()=>nav('categories')},[
@@ -2085,6 +2113,7 @@ let SESSION = null; // { queue:[{card,mode}], idx, results:[], revealed:bool }
 
 function startSession(kind, fixedModeId, category, limit){
   let pool = CARDS;
+  if(kind === 'omakase') pool = CARDS.filter(c=> classifyTier(LEARNING[c.id]) !== 'perfect'); // 「完璧」は出題対象外
   if(kind === 'category' && category) pool = CARDS.filter(c=>c.category===category);
   if(kind === 'weak') pool = CARDS.filter(c=>{
     const rec = LEARNING[c.id];
@@ -2301,6 +2330,8 @@ async function judge(isCorrect){
   const rec = getLearning(card.id);
   ReviewScheduler.applyResult(rec, isCorrect, mode.id);
   await saveLearning();
+  const today = todayDateStr();
+  if(!STUDY_DAYS[today]){ STUDY_DAYS[today] = true; await saveStudyDays(); }
   SESSION.results.push({cardId:card.id, mode:mode.id, correct:isCorrect});
   SESSION.idx++;
   SESSION.revealed = false;
@@ -2353,46 +2384,119 @@ function screenResult(){
 /* =========================================================================
    SCREEN: HISTORY
    ========================================================================= */
+let HISTORY_CAL_YEAR = null, HISTORY_CAL_MONTH = null; // HISTORY_CAL_MONTH は 0-indexed
+let HISTORY_SORT_INCORRECT_DESC = false;
+function ensureHistoryCalendarInit(){
+  if(HISTORY_CAL_YEAR === null){
+    const now = new Date();
+    HISTORY_CAL_YEAR = now.getFullYear();
+    HISTORY_CAL_MONTH = now.getMonth();
+  }
+}
+function shiftCalendarMonth(delta){
+  HISTORY_CAL_MONTH += delta;
+  if(HISTORY_CAL_MONTH < 0){ HISTORY_CAL_MONTH = 11; HISTORY_CAL_YEAR--; }
+  if(HISTORY_CAL_MONTH > 11){ HISTORY_CAL_MONTH = 0; HISTORY_CAL_YEAR++; }
+}
+const CAL_WEEKDAY_LABELS = ['日','月','火','水','木','金','土'];
+function buildCalendarNav(){
+  return h('div',{class:'cal-nav'},[
+    h('button',{class:'cal-nav-btn', onclick:()=>{ shiftCalendarMonth(-1); render(); }}, '‹'),
+    h('div',{class:'cal-nav-label'}, `${HISTORY_CAL_YEAR}年${HISTORY_CAL_MONTH+1}月`),
+    h('button',{class:'cal-nav-btn', onclick:()=>{ shiftCalendarMonth(1); render(); }}, '›')
+  ]);
+}
+function buildCalendarGrid(){
+  const grid = h('div',{class:'cal-grid'});
+  CAL_WEEKDAY_LABELS.forEach(w=> grid.appendChild(h('div',{class:'cal-weekday'}, w)));
+  const firstDay = new Date(HISTORY_CAL_YEAR, HISTORY_CAL_MONTH, 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(HISTORY_CAL_YEAR, HISTORY_CAL_MONTH+1, 0).getDate();
+  for(let i=0;i<startWeekday;i++) grid.appendChild(h('div',{class:'cal-cell empty'}));
+  const todayStr = todayDateStr();
+  for(let d=1; d<=daysInMonth; d++){
+    const dateStr = `${HISTORY_CAL_YEAR}-${String(HISTORY_CAL_MONTH+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const studied = !!STUDY_DAYS[dateStr];
+    const isToday = dateStr === todayStr;
+    grid.appendChild(h('div',{class:'cal-cell'+(isToday?' today':'')},[
+      h('span',{class:'cal-daynum'}, String(d)),
+      studied ? h('span',{class:'cal-stamp'}, '済') : null
+    ]));
+  }
+  return grid;
+}
+function attachCalendarSwipe(){
+  const el = document.getElementById('history-calendar-panel');
+  if(!el) return;
+  let startX=0, startY=0, tracking=false, pid=null;
+  el.addEventListener('pointerdown', e=>{
+    startX = e.clientX; startY = e.clientY; tracking = true; pid = e.pointerId;
+  });
+  el.addEventListener('pointerup', e=>{
+    if(!tracking || e.pointerId !== pid) return;
+    tracking = false;
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    if(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)*1.5){
+      if(dx > 0) shiftCalendarMonth(-1); // 右スワイプ → 前月
+      else shiftCalendarMonth(1);        // 左スワイプ → 翌月
+      render();
+    }
+  });
+  el.addEventListener('pointercancel', ()=>{ tracking = false; });
+}
+function historyCardRow(card){
+  const rec = LEARNING[card.id] || {};
+  const correct = rec.correctCount || 0;
+  const incorrect = rec.incorrectCount || 0;
+  const item = h('div',{class:'card-list-item', onclick:()=>nav('carddetail', {id:card.id})});
+  const thumb = h('div',{class:'thumb'});
+  if(card.photoImage) thumb.appendChild(h('img',{src:'', alt:''}));
+  item.appendChild(thumb);
+  loadThumb(thumb, card);
+  item.appendChild(h('div',{class:'cli-body'},[
+    h('div',{class:'cli-name'}, card.name || '(名称未登録)'),
+    h('div',{class:'cli-meta'}, card.category)
+  ]));
+  item.appendChild(h('div',{style:'display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;'},[
+    h('span',{style:'color:var(--teal);font-family:var(--font-mono);font-size:11px;font-weight:700;white-space:nowrap;'}, `正解 ${correct}`),
+    h('span',{style:'color:var(--danger);font-family:var(--font-mono);font-size:11px;font-weight:700;white-space:nowrap;'}, `不正解 ${incorrect}`)
+  ]));
+  return item;
+}
 function screenHistory(){
+  ensureHistoryCalendarInit();
   const root = h('div',{});
   root.appendChild(topbar('学習履歴', `全${CARDS.length}枚`));
   const s = h('div',{class:'screen'});
 
-  let totalReview=0, totalCorrect=0, totalIncorrect=0;
-  Object.values(LEARNING).forEach(r=>{ totalReview+=r.reviewCount; totalCorrect+=r.correctCount; totalIncorrect+=r.incorrectCount; });
-  const overallPct = totalReview ? Math.round(totalCorrect/totalReview*100) : 0;
-
-  s.appendChild(h('div',{class:'panel'},[
-    h('div',{class:'section-label'},'累計'),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'総復習回数'), h('span',{class:'v'}, totalReview+'回')]),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'正解'), h('span',{class:'v'}, totalCorrect+'回')]),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'不正解'), h('span',{class:'v'}, totalIncorrect+'回')]),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'全体正解率'), h('span',{class:'v'}, overallPct+'%')]),
+  const totalStudyDays = Object.keys(STUDY_DAYS).length;
+  const calPanel = h('div',{class:'panel', id:'history-calendar-panel'});
+  calPanel.appendChild(h('div',{class:'status-header'},[
+    h('div',{class:'status-title'}, '学習カレンダー'),
+    h('div',{class:'status-progress'}, `総学習日数 ${totalStudyDays}日`)
   ]));
+  calPanel.appendChild(buildCalendarNav());
+  calPanel.appendChild(buildCalendarGrid());
+  s.appendChild(calPanel);
 
-  const buckets = classifyAll();
-  s.appendChild(h('div',{class:'panel'},[
-    h('div',{class:'section-label'},'内訳'),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'未学習'), h('span',{class:'v'}, (buckets.unlearned||0)+'枚')]),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'要復習'), h('span',{class:'v'}, (buckets.review||0)+'枚')]),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'不安あり'), h('span',{class:'v'}, (buckets.unsure||0)+'枚')]),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'覚えた'), h('span',{class:'v'}, (buckets.learned||0)+'枚')]),
-    h('div',{class:'kv-row'},[h('span',{class:'k'},'完璧'), h('span',{class:'v'}, (buckets.perfect||0)+'枚')]),
-  ]));
+  const listHeader = h('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-top:4px;'},[
+    h('div',{class:'section-label', style:'margin-bottom:0;'}, `カード一覧(${CARDS.length}枚)`),
+    h('button',{class:'chip'+(HISTORY_SORT_INCORRECT_DESC?' active':''), onclick:()=>{ HISTORY_SORT_INCORRECT_DESC = !HISTORY_SORT_INCORRECT_DESC; render(); }}, '不正解が多い順')
+  ]);
+  s.appendChild(listHeader);
 
-  // 最近復習したカード
-  const recentCards = CARDS
-    .filter(c=>LEARNING[c.id] && LEARNING[c.id].lastReviewedAt)
-    .sort((a,b)=> new Date(LEARNING[b.id].lastReviewedAt) - new Date(LEARNING[a.id].lastReviewedAt))
-    .slice(0,15);
-  s.appendChild(h('div',{class:'section-label'},'最近学習したカード'));
+  let listCards = CARDS.slice();
+  if(HISTORY_SORT_INCORRECT_DESC){
+    listCards.sort((a,b)=> ((LEARNING[b.id]&&LEARNING[b.id].incorrectCount)||0) - ((LEARNING[a.id]&&LEARNING[a.id].incorrectCount)||0));
+  }
   const list = h('div',{class:'mode-list'});
-  recentCards.forEach(c=> list.appendChild(cardListItem(c)));
-  if(!recentCards.length) list.appendChild(h('div',{class:'empty-state'},'まだ学習履歴がありません'));
+  listCards.forEach(c=> list.appendChild(historyCardRow(c)));
+  if(!listCards.length) list.appendChild(h('div',{class:'empty-state'},'カードがありません'));
   s.appendChild(list);
 
   s.appendChild(bottomNav('history'));
   root.appendChild(s);
+  setTimeout(()=> attachCalendarSwipe(), 0);
   return root;
 }
 
@@ -2477,7 +2581,9 @@ function screenSettings(){
 let RESET_CONFIRM_MODE = false;
 async function resetLearningHistory(){
   LEARNING = {};
+  STUDY_DAYS = {};
   await saveLearning();
+  await saveStudyDays();
   RESET_CONFIRM_MODE = false;
   showToast('学習履歴をリセットしました');
   render();
@@ -2490,7 +2596,7 @@ async function exportBackup(){
     const val = await storeGetText(k);
     if(val) images[k] = val;
   }
-  const backup = { version:1, exportedAt:new Date().toISOString(), cards:CARDS, learning:LEARNING, settings:SETTINGS, images };
+  const backup = { version:1, exportedAt:new Date().toISOString(), cards:CARDS, learning:LEARNING, settings:SETTINGS, studyDays:STUDY_DAYS, images };
   const blob = new Blob([JSON.stringify(backup)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -2537,7 +2643,8 @@ async function importBackup(e){
     CARDS = backup.cards || [];
     LEARNING = backup.learning || {};
     SETTINGS = Object.assign({...DEFAULT_SETTINGS}, backup.settings||{});
-    await saveCards(); await saveLearning(); await saveSettings();
+    STUDY_DAYS = backup.studyDays || {};
+    await saveCards(); await saveLearning(); await saveSettings(); await saveStudyDays();
     // 復元したカードが持つカテゴリを選択肢に反映(追加済みカスタムカテゴリも復元後すぐ選べるように)
     CARDS.forEach(c=>{ if(c.category && !CATEGORY_LIST.includes(c.category)) CATEGORY_LIST.push(c.category); });
     if(backup.images){
