@@ -197,6 +197,7 @@ body{
 .btn:active{transform:scale(0.98);}
 .btn.primary{background:var(--accent-soft);border-color:rgba(200,114,42,0.4);color:var(--accent);font-weight:700;}
 .btn.ghost{background:transparent;}
+.btn.cancel-danger{justify-content:center;background:rgba(192,69,58,0.55);border-color:rgba(192,69,58,0.6);color:#fff;font-weight:600;}
 .btn-row{display:flex;gap:10px;}
 .btn-row .btn{flex:1;justify-content:center;}
 
@@ -235,17 +236,16 @@ body{
 .cal-weekday{text-align:center;font-size:10px;color:var(--ink-dim);padding-bottom:4px;}
 .cal-cell{
   aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  position:relative;border-radius:8px;background:rgba(255,255,255,0.03);
+  position:relative;border-radius:8px;background:rgba(255,255,255,0.03);gap:2px;
 }
 .cal-cell.empty{background:none;}
 .cal-cell.today{box-shadow:inset 0 0 0 1.5px var(--accent);}
-.cal-daynum{font-size:10.5px;color:var(--ink-dim);}
+.cal-daynum{font-size:10px;color:var(--ink-dim);line-height:1;}
 .cal-cell.today .cal-daynum{color:var(--accent);font-weight:700;}
 .cal-stamp{
-  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-14deg);
-  color:var(--danger);border:1.5px solid var(--danger);border-radius:5px;
-  font-size:10px;font-weight:900;padding:0 2px;line-height:1.4;opacity:0.92;
-  background:rgba(192,69,58,0.08);
+  color:var(--danger);border:1.3px solid var(--danger);border-radius:4px;
+  font-size:8px;font-weight:900;padding:0 2px;line-height:1.4;opacity:0.92;
+  background:rgba(192,69,58,0.08);transform:rotate(-10deg);
 }
 
 .chip-row{display:flex;flex-wrap:wrap;gap:8px;}
@@ -1764,7 +1764,7 @@ function screenAddCard(){
   ]));
 
   s.appendChild(h('button',{class:'cta', onclick:saveNewCard}, 'このカードを保存'));
-  s.appendChild(h('button',{class:'btn ghost', onclick:()=>{ ADD_CARD_STATE=null; navBack(); }}, 'キャンセル'));
+  s.appendChild(h('button',{class:'btn cancel-danger', onclick:()=>{ ADD_CARD_STATE=null; navBack(); }}, 'キャンセル'));
 
   root.appendChild(s);
   return root;
@@ -2511,12 +2511,31 @@ function screenSettings(){
   s.appendChild(h('div',{class:'section-label'},'出題設定'));
   const countPanel = h('div',{class:'panel'});
   countPanel.appendChild(h('div',{style:'font-size:13px;margin-bottom:10px;'}, '1回の出題数(デフォルト)'));
+  const presetValues = [5,10,20,30,40,'all'];
+  const isCustomCount = !presetValues.includes(SETTINGS.questionCount);
   const chipRow = h('div',{class:'chip-row'});
-  [5,10,20,30,40,'all'].forEach(n=>{
+  presetValues.forEach(n=>{
     const label = n === 'all' ? '全て' : String(n)+'問';
     chipRow.appendChild(h('button',{class:'chip'+(SETTINGS.questionCount===n?' active':''), onclick:async()=>{ SETTINGS.questionCount=n; await saveSettings(); render(); }}, label));
   });
+  chipRow.appendChild(h('button',{class:'chip'+(isCustomCount?' active':''), onclick:async()=>{
+    if(!isCustomCount){ SETTINGS.questionCount = 15; await saveSettings(); }
+    render();
+  }}, 'カスタム'));
   countPanel.appendChild(chipRow);
+  if(isCustomCount){
+    countPanel.appendChild(h('div',{style:'margin-top:10px;display:flex;align-items:center;gap:8px;'},[
+      h('input',{type:'number', inputmode:'numeric', min:'1', class:'text-input', style:'width:110px;',
+        value:String(SETTINGS.questionCount), onchange:async(e)=>{
+          let v = parseInt(e.target.value, 10);
+          if(!v || v < 1) v = 1;
+          SETTINGS.questionCount = v;
+          await saveSettings();
+          render();
+        }}),
+      h('span',{style:'font-size:13px;color:var(--ink-dim);'}, '問')
+    ]));
+  }
   s.appendChild(countPanel);
 
   s.appendChild(h('div',{class:'section-label'},'有効な出題方向'));
@@ -2549,7 +2568,9 @@ function screenSettings(){
   updatePanel.appendChild(h('div',{style:'font-size:12px;color:var(--ink-dim);margin-bottom:10px;'},
     'GitHub側のファイルを更新したのに反映されない場合、端末にキャッシュが残っている可能性があります。下のボタンでキャッシュを無視して読み込み直せます。'));
   updatePanel.appendChild(h('button',{class:'btn', onclick:()=>{
-    location.href = location.pathname + '?_r=' + Date.now();
+    // location.href だとブラウザ履歴に新しいエントリが積まれ、更新直後にスワイプで
+    // 「戻る」と更新前の古いページに戻ってしまうため、履歴を上書きする replace を使う
+    location.replace(location.pathname + '?_r=' + Date.now());
   }}, '🔄 最新の状態に更新'));
   s.appendChild(updatePanel);
 
