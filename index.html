@@ -183,6 +183,8 @@ body{
   animation:alertPulse 1.6s ease-in-out infinite;
 }
 .alert-dot{width:6px;height:6px;border-radius:50%;background:#fff;flex-shrink:0;}
+.alert-badge.small{padding:3px 8px;font-size:10px;gap:4px;}
+.alert-badge.small .alert-dot{width:5px;height:5px;}
 @keyframes alertPulse{
   0%,100%{box-shadow:0 2px 8px -1px rgba(192,69,58,0.6);}
   50%{box-shadow:0 2px 14px 2px rgba(192,69,58,0.85);}
@@ -1230,7 +1232,7 @@ function screenHome(){
   const hasForgetting = forgettingHasAny();
   const forgettingTitleRow = h('div',{style:'display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px;'},[
     h('span',{}, '忘却曲線対応復習'),
-    hasForgetting ? h('span',{class:'alert-badge'}, [h('span',{class:'alert-dot'}), '復習あり']) : null
+    hasForgetting ? h('span',{class:'alert-badge'}, [h('span',{class:'alert-dot'}), '要復習カードあり']) : null
   ]);
   const forgettingChildren = [
     forgettingTitleRow,
@@ -1370,12 +1372,16 @@ function screenForgetting(){
   FORGETTING_DAYS.forEach(days=>{
     const count = forgettingCardsForDays(days).length;
     const done = count > 0 && isForgettingCompletedToday(days);
+    const needsReview = count > 0 && !done;
     const item = h('div',{class:'mode-item'+(done?' forgetting-done':''), onclick:()=>startSession('forgetting', null, days)},[
       h('div',{},[
         h('div',{class:'name'}, `${days}日後の復習`),
         h('div',{class:'count'}, done ? '本日分 完了' : `${count}枚`)
       ]),
-      done ? h('span',{class:'done-check'}, '✓') : h('div',{class:'arrow'}, '▶')
+      h('div',{style:'display:flex;align-items:center;gap:8px;'},[
+        needsReview ? h('span',{class:'alert-badge small'}, [h('span',{class:'alert-dot'}), '要復習']) : null,
+        done ? h('span',{class:'done-check'}, '✓') : h('div',{class:'arrow'}, '▶')
+      ])
     ]);
     list.appendChild(item);
   });
@@ -2401,9 +2407,9 @@ function shiftCalendarMonth(delta){
 const CAL_WEEKDAY_LABELS = ['日','月','火','水','木','金','土'];
 function buildCalendarNav(){
   return h('div',{class:'cal-nav'},[
-    h('button',{class:'cal-nav-btn', onclick:()=>{ shiftCalendarMonth(-1); render(); }}, '‹'),
+    h('button',{class:'cal-nav-btn', onclick:()=>{ shiftCalendarMonth(-1); renderCalendarBody(); }}, '‹'),
     h('div',{class:'cal-nav-label'}, `${HISTORY_CAL_YEAR}年${HISTORY_CAL_MONTH+1}月`),
-    h('button',{class:'cal-nav-btn', onclick:()=>{ shiftCalendarMonth(1); render(); }}, '›')
+    h('button',{class:'cal-nav-btn', onclick:()=>{ shiftCalendarMonth(1); renderCalendarBody(); }}, '›')
   ]);
 }
 function buildCalendarGrid(){
@@ -2425,6 +2431,20 @@ function buildCalendarGrid(){
   }
   return grid;
 }
+function renderCalendarBody(){
+  // カレンダー部分だけを差し替える(画面全体を再描画するとナビゲーションバー等に
+  // フェードインアニメーションがかかり直し、一瞬消えたように見えてしまうため)
+  const body = document.getElementById('calendar-body');
+  if(!body) return;
+  body.innerHTML = '';
+  const totalStudyDays = Object.keys(STUDY_DAYS).length;
+  body.appendChild(h('div',{class:'status-header'},[
+    h('div',{class:'status-title'}, '学習カレンダー'),
+    h('div',{class:'status-progress'}, `総学習日数 ${totalStudyDays}日`)
+  ]));
+  body.appendChild(buildCalendarNav());
+  body.appendChild(buildCalendarGrid());
+}
 function attachCalendarSwipe(){
   const el = document.getElementById('history-calendar-panel');
   if(!el) return;
@@ -2439,7 +2459,7 @@ function attachCalendarSwipe(){
     if(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)*1.5){
       if(dx > 0) shiftCalendarMonth(-1); // 右スワイプ → 前月
       else shiftCalendarMonth(1);        // 左スワイプ → 翌月
-      render();
+      renderCalendarBody();
     }
   });
   el.addEventListener('pointercancel', ()=>{ tracking = false; });
@@ -2471,12 +2491,14 @@ function screenHistory(){
 
   const totalStudyDays = Object.keys(STUDY_DAYS).length;
   const calPanel = h('div',{class:'panel', id:'history-calendar-panel'});
-  calPanel.appendChild(h('div',{class:'status-header'},[
+  const calBody = h('div',{id:'calendar-body'});
+  calBody.appendChild(h('div',{class:'status-header'},[
     h('div',{class:'status-title'}, '学習カレンダー'),
     h('div',{class:'status-progress'}, `総学習日数 ${totalStudyDays}日`)
   ]));
-  calPanel.appendChild(buildCalendarNav());
-  calPanel.appendChild(buildCalendarGrid());
+  calBody.appendChild(buildCalendarNav());
+  calBody.appendChild(buildCalendarGrid());
+  calPanel.appendChild(calBody);
   s.appendChild(calPanel);
 
   const listHeader = h('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-top:4px;'},[
@@ -2552,7 +2574,7 @@ function screenSettings(){
   s.appendChild(modePanel);
 
   s.appendChild(h('div',{class:'section-label'},'データ管理'));
-  const dataPanel = h('div',{class:'btn-row'});
+  const dataPanel = h('div',{style:'display:flex;flex-direction:column;gap:10px;'});
   dataPanel.appendChild(h('button',{class:'btn', onclick:exportBackup}, '⬆ バックアップ書き出し'));
   const importBtn = h('label',{class:'btn', style:'position:relative;'},[
     '⬇ バックアップ復元',
