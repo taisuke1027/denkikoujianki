@@ -250,6 +250,28 @@ body{
   background:rgba(192,69,58,0.08);transform:rotate(-10deg);
 }
 
+/* ---------- 表で暗記(穴埋めクイズ) ---------- */
+.quiz-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:var(--radius-sm);}
+.quiz-table{width:100%;border-collapse:collapse;font-size:12px;background:var(--bg-elevated);}
+.quiz-table th, .quiz-table td{padding:9px 6px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap;}
+.quiz-table th{font-family:var(--font-display);font-weight:700;font-size:10.5px;color:var(--ink-dim);background:var(--bg-elevated-2);}
+.quiz-table tr:last-child td{border-bottom:none;}
+.quiz-fixed{font-family:var(--font-mono);font-weight:700;color:var(--ink);}
+.quiz-input-cell{display:flex;align-items:center;justify-content:center;gap:3px;flex-wrap:wrap;}
+.quiz-input{
+  width:48px;padding:6px 2px;border-radius:8px;border:1px solid var(--line);
+  background:var(--bg-elevated-2);color:var(--ink);font-family:var(--font-mono);
+  font-size:13px;text-align:center;
+}
+.quiz-input:focus{outline:none;border-color:var(--accent);}
+.quiz-input.correct{border-color:var(--teal);background:var(--teal-soft);color:var(--teal);}
+.quiz-input.incorrect{border-color:var(--danger);background:var(--danger-soft);color:var(--danger);}
+.quiz-unit{font-size:10.5px;color:var(--ink-dim);flex-shrink:0;}
+.quiz-correct-answer{display:block;width:100%;font-size:9px;color:var(--danger);font-family:var(--font-mono);margin-top:2px;}
+.quiz-summary-score{font-family:var(--font-display);font-weight:900;font-size:20px;}
+.quiz-summary-score.full{color:var(--teal);}
+.quiz-summary-score.partial{color:var(--amber);}
+
 .chip-row{display:flex;flex-wrap:wrap;gap:8px;}
 .chip{
   padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg-elevated);
@@ -445,6 +467,10 @@ textarea.text-input{resize:vertical;font-family:var(--font-mono);font-size:12px;
 document.write('<scr' + 'ipt src="cards_data.js?v=' + Date.now() + '"></scr' + 'ipt>');
 </script>
 <script>
+// tables_data.js(表で暗記機能のデータ)も同様にキャッシュを回避して読み込む
+document.write('<scr' + 'ipt src="tables_data.js?v=' + Date.now() + '"></scr' + 'ipt>');
+</script>
+<script>
 /* =========================================================================
    電工二種 暗記カードアプリ — 単一ファイル実装
    構成:
@@ -598,6 +624,12 @@ let SETTINGS = {...DEFAULT_SETTINGS};
 let STUDY_DAYS = {};    // { 'YYYY-MM-DD': true } 学習(判定)を1回でも行った日の記録(履歴カレンダー用)
 let IMAGE_CACHE = {};   // { "cardId:photo": dataUrl } メモリキャッシュ(遅延読み込み用)
 
+// 表で暗記(穴埋めクイズ)機能。tables_data.js から読み込む静的な参考データなので、
+// カードと違ってユーザー編集や差分同期は行わず、起動のたびに最新の内容をそのまま使う。
+// 正答結果(TABLE_PROGRESS)だけを表IDをキーに永続化する。
+let TABLES = [];        // 表マスターデータ(tables_data.js の DEFAULT_TABLES)
+let TABLE_PROGRESS = {}; // { [tableId]: {correct, total, at} } 直近の採点結果
+
 // 出題方向の定義。将来の拡張(写真⇄記号 等)もこの配列に足すだけで対応できる。
 const QUESTION_MODES = [
   { id:'symbol2name', label:'配線図記号 → 名称', qSide:'symbol', aSide:'name', qLabel:'この配線図記号の名称は?' },
@@ -691,6 +723,11 @@ async function loadAll(){
   // 2回目以降の起動: cards_data.js が更新されていれば、ユーザーが編集していない
   // プリインストールカードだけを最新内容に同期する(学習履歴・ユーザーの編集は保持したまま)
   await syncDefaultDeck();
+
+  // 表で暗記データは編集機能を持たないため、毎回 tables_data.js の内容をそのまま使う。
+  // 採点結果(TABLE_PROGRESS)だけ別キーで永続化されたものを読み込む。
+  TABLES = (window.DEFAULT_TABLES || []).map(t => JSON.parse(JSON.stringify(t)));
+  TABLE_PROGRESS = await storeGetJSON('table_progress', {});
 }
 async function installDefaultDeckIfAvailable(){
   if(typeof window.DEFAULT_CARDS === 'undefined') { await storeSetJSON('cards', []); return; }
@@ -770,6 +807,7 @@ async function saveCards(){ await storeSetJSON('cards', CARDS); }
 async function saveLearning(){ await storeSetJSON('learning', LEARNING); }
 async function saveSettings(){ await storeSetJSON('settings', SETTINGS); }
 async function saveStudyDays(){ await storeSetJSON('study_days', STUDY_DAYS); }
+async function saveTableProgress(){ await storeSetJSON('table_progress', TABLE_PROGRESS); }
 
 async function getImage(cardId, kind){ // kind: 'photo' | 'symbol'
   const cacheKey = cardId+':'+kind;
@@ -1241,6 +1279,12 @@ function screenHome(){
   if(!hasForgetting) forgettingChildren.push(h('span',{class:'cta-caption-inline muted'}, '復習カードはありません。'));
   s.appendChild(h('button',{class:'cta-home'+(hasForgetting?' has-alert':''), onclick:()=>nav('forgetting')}, forgettingChildren));
 
+  if(TABLES.length){
+    s.appendChild(h('button',{class:'cta-home', onclick:()=>nav('tablelist')},[
+      '表で暗記', h('span',{class:'sub'}, '許容電流など、表の数値を穴埋めで覚える')
+    ]));
+  }
+
   s.appendChild(bottomNav('home'));
   root.appendChild(s);
   return root;
@@ -1432,6 +1476,161 @@ function screenUnlearned(){
   if(!unlearned.length) s.appendChild(h('div',{class:'empty-state'},[h('div',{class:'ico'},'🎉'),'すべて学習済みです']));
   s.appendChild(bottomNav('modes'));
   root.appendChild(s);
+  return root;
+}
+
+/* =========================================================================
+   SCREEN: 表で暗記(穴埋めクイズ)
+   カード形式とは別に、表全体をまとめて穴埋めで覚えるための機能。
+   tables_data.js の DEFAULT_TABLES を元に一覧・出題を行う。
+   新しい表を追加したいときは tables_data.js に定義を1つ足すだけでよい。
+   ========================================================================= */
+function tableProgressLabel(t){
+  const prog = TABLE_PROGRESS[t.id];
+  if(!prog || !prog.total) return '未挑戦';
+  return `前回 ${prog.correct}/${prog.total}問正解`;
+}
+function screenTableList(){
+  const root = h('div',{id:'tablelist-root', class:'screen-swipe-root'});
+  root.appendChild(topbar('表で暗記', '表の数値を穴埋めで覚える', true));
+  const s = h('div',{class:'screen'});
+
+  if(!TABLES.length){
+    s.appendChild(h('div',{class:'empty-state panel'},[
+      h('div',{class:'ico'}, '📋'),
+      h('div',{}, '暗記できる表がまだ登録されていません。')
+    ]));
+  } else {
+    const list = h('div',{class:'mode-list'});
+    TABLES.forEach(t=>{
+      const prog = TABLE_PROGRESS[t.id];
+      const complete = prog && prog.total > 0 && prog.correct === prog.total;
+      const item = h('div',{class:'mode-item', onclick:()=>nav('tablequiz', {tableId:t.id})},[
+        h('div',{},[
+          h('div',{class:'name'}, t.title),
+          h('div',{class:'count'}, tableProgressLabel(t))
+        ]),
+        h('div',{style:'display:flex;align-items:center;gap:8px;'},[
+          complete ? h('span',{class:'done-check'}, '✓') : null,
+          h('div',{class:'arrow'}, '▶')
+        ])
+      ]);
+      list.appendChild(item);
+    });
+    s.appendChild(list);
+  }
+
+  s.appendChild(bottomNav('home'));
+  root.appendChild(s);
+  setTimeout(()=> attachSwipeBack(document.getElementById('tablelist-root')), 0);
+  return root;
+}
+
+function valuesMatch(inputVal, correct){
+  const a = String(inputVal).trim();
+  if(a === '') return false;
+  const na = parseFloat(a.replace(/,/g,''));
+  const nc = parseFloat(String(correct).trim());
+  if(!isNaN(na) && !isNaN(nc)) return Math.abs(na-nc) < 1e-9;
+  return a === String(correct).trim();
+}
+
+function screenTableQuiz(params){
+  const table = TABLES.find(t=>t.id===params.tableId);
+  const root = h('div',{id:'tablequiz-root', class:'screen-swipe-root'});
+  const s = h('div',{class:'screen'});
+
+  if(!table){
+    root.appendChild(topbar('表で暗記', null, true));
+    s.appendChild(h('div',{class:'empty-state'}, '表が見つかりません'));
+    s.appendChild(bottomNav('home'));
+    root.appendChild(s);
+    return root;
+  }
+
+  root.appendChild(topbar(table.title, table.category || null, true));
+
+  if(table.note){
+    s.appendChild(h('div',{style:'font-size:12px;color:var(--ink-dim);'}, table.note));
+  }
+
+  // 穴埋め入力欄と、その正解値をひも付けて管理する
+  const blanks = []; // [{input, correct, unit}]
+
+  const thead = h('thead',{},[
+    h('tr',{}, table.columns.map(col=> h('th',{}, col.label)))
+  ]);
+  const tbody = h('tbody',{});
+  table.rows.forEach(row=>{
+    const tr = h('tr',{});
+    table.columns.forEach(col=>{
+      if(col.type === 'fixed'){
+        tr.appendChild(h('td',{class:'quiz-fixed'}, String(row[col.key])));
+      } else {
+        const input = h('input',{
+          class:'quiz-input', type:'text', inputmode:'decimal',
+          autocomplete:'off', autocorrect:'off', spellcheck:'false', placeholder:'?'
+        });
+        blanks.push({ input, correct: row[col.key], unit: col.unit || '' });
+        tr.appendChild(h('td',{},[
+          h('div',{class:'quiz-input-cell'},[input, h('span',{class:'quiz-unit'}, col.unit || '')])
+        ]));
+      }
+    });
+    tbody.appendChild(tr);
+  });
+  const tableEl = h('table',{class:'quiz-table'},[thead, tbody]);
+  s.appendChild(h('div',{class:'quiz-table-wrap'}, tableEl));
+
+  const summary = h('div',{class:'panel', style:'display:none;'});
+  s.appendChild(summary);
+
+  const btnRow = h('div',{class:'btn-row'});
+  const gradeBtn = h('button',{class:'btn primary'}, '採点する');
+  const retryBtn = h('button',{class:'btn', style:'display:none;'}, 'もう一度');
+  btnRow.appendChild(gradeBtn);
+  btnRow.appendChild(retryBtn);
+  s.appendChild(btnRow);
+
+  gradeBtn.addEventListener('click', async ()=>{
+    let correctCount = 0;
+    blanks.forEach(b=>{
+      const ok = valuesMatch(b.input.value, b.correct);
+      b.input.classList.remove('correct','incorrect');
+      b.input.classList.add(ok ? 'correct' : 'incorrect');
+      b.input.readOnly = true;
+      if(ok){
+        correctCount++;
+      } else {
+        const cell = b.input.closest('.quiz-input-cell');
+        if(cell) cell.appendChild(h('span',{class:'quiz-correct-answer'}, `正解: ${b.correct}${b.unit}`));
+      }
+    });
+    const total = blanks.length;
+    summary.style.display = '';
+    summary.innerHTML = '';
+    summary.appendChild(h('div',{style:'display:flex;align-items:center;justify-content:space-between;'},[
+      h('div',{}, [
+        h('div',{style:'font-size:12px;color:var(--ink-dim);'}, '採点結果'),
+        h('div',{class:'quiz-summary-score'+(correctCount===total?' full':' partial')}, `${correctCount} / ${total} 問正解`)
+      ]),
+      correctCount===total ? h('div',{style:'font-size:26px;'}, '🎉') : null
+    ]));
+    gradeBtn.style.display = 'none';
+    retryBtn.style.display = '';
+
+    TABLE_PROGRESS[table.id] = { correct: correctCount, total, at: new Date().toISOString() };
+    await saveTableProgress();
+    if(!STUDY_DAYS[todayDateStr()]){ STUDY_DAYS[todayDateStr()] = true; await saveStudyDays(); }
+  });
+
+  retryBtn.addEventListener('click', ()=>{
+    nav('tablequiz', {tableId: table.id}, true);
+  });
+
+  s.appendChild(bottomNav('home'));
+  root.appendChild(s);
+  setTimeout(()=> attachSwipeBack(document.getElementById('tablequiz-root')), 0);
   return root;
 }
 
@@ -2719,6 +2918,8 @@ function render(){
     case 'forgetting': node = screenForgetting(); break;
     case 'weak': node = screenWeak(); break;
     case 'unlearned': node = screenUnlearned(); break;
+    case 'tablelist': node = screenTableList(); break;
+    case 'tablequiz': node = screenTableQuiz(ROUTE.params); break;
     case 'cardlist': node = screenCardList(); break;
     case 'addcard': node = screenAddCard(); break;
     case 'carddetail': node = screenCardDetail(ROUTE.params); break;
