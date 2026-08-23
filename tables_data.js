@@ -49,29 +49,31 @@ window.DEFAULT_TABLES = [
     category: '絶縁抵抗値',
     note: '使用電圧の区分と、対応する絶縁抵抗値の数値を覚えましょう。',
     columns: [
-      // type:'mixed' の列は、行ごとに row[key] に
-      // { type:'blank', value:'数値', unit?:'単位' } または { type:'fixed', text:'表示文言' }
-      // を指定することで、同じ列でも行によって入力欄/固定表示を切り替えられる。
-      { key: 'voltage', label: '電路の使用電圧', type: 'mixed', unit: 'V以下' },
-      { key: 'sub', label: '対地電圧など', type: 'mixed', unit: 'V以下' },
-      { key: 'applies', label: '該当する配線方式', type: 'fixed' },
-      { key: 'insulation', label: '絶縁抵抗値', type: 'blank', unit: 'MΩ以上' }
+      // type:'template': 文言と入力欄を配列で並べる(例: [{v:'300'}, 'V以下'])
+      // type:'mixed'   : 行ごとに { type:'blank', value:'…' } か { type:'fixed', text:'…' } を切り替え
+      { key: 'voltage', label: '電路の使用電圧', type: 'template', width: '20%' },
+      { key: 'sub', label: '対地電圧など', type: 'mixed', unit: 'V以下', width: '22%' },
+      { key: 'applies', label: '該当する配線方式', type: 'fixed', width: '36%' },
+      { key: 'insulation', label: '絶縁抵抗値', type: 'blank', unit: 'MΩ以上', width: '22%' }
     ],
     rows: [
       {
-        voltage: { type: 'blank', value: '300' },
+        // _rowSpan で「電路の使用電圧」列を2行分まとめて1つの入力欄にする
+        // (元の表で「300V以下」のセルが2行にまたがっているのを再現)
+        _rowSpan: { voltage: 2 },
+        voltage: [ {v:'300'}, 'V以下' ],
         sub: { type: 'blank', value: '150' },
         applies: '単相2線式100V、単相3線式100/200Vが該当',
         insulation: '0.1'
       },
       {
-        voltage: { type: 'blank', value: '300' },
+        // voltage 列はこの行では描画されない(1つ上の行の rowSpan に含まれる)
         sub: { type: 'fixed', text: 'その他の場合' },
         applies: '三相3線式200Vが該当',
         insulation: '0.2'
       },
       {
-        voltage: { type: 'fixed', text: '300Vを超えるもの' },
+        voltage: [ {v:'300'}, 'Vを超えるもの' ],
         sub: { type: 'fixed', text: '—' },
         applies: '三相4線式400Vが該当',
         insulation: '0.4'
@@ -85,12 +87,12 @@ window.DEFAULT_TABLES = [
     category: '配線器具',
     note: '配線用遮断器の定格電流をもとに、コンセントの定格電流の範囲と電線の太さを覚えましょう。',
     columns: [
-      { key: 'breaker', label: '配線用遮断器の定格電流', type: 'fixed' },
+      { key: 'breaker', label: '配線用遮断器の定格電流', type: 'fixed', width: '26%' },
       // type:'template' の列は、row[key] に文字列(固定文言)と
       // {v:'正解の数値'}(入力欄)を順番に並べた配列を指定することで、
       // 1つのセルの中に複数の入力欄と文言を混在させられる。
-      { key: 'outlet', label: 'コンセントの定格電流', type: 'template' },
-      { key: 'wire', label: '電線の太さ', type: 'template' }
+      { key: 'outlet', label: 'コンセントの定格電流', type: 'template', width: '37%' },
+      { key: 'wire', label: '電線の太さ', type: 'template', width: '37%' }
     ],
     rows: [
       {
