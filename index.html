@@ -266,8 +266,11 @@ body{
 .quiz-input:focus{outline:none;border-color:var(--accent);}
 .quiz-input.correct{border-color:var(--teal);background:var(--teal-soft);color:var(--teal);}
 .quiz-input.incorrect{border-color:var(--danger);background:var(--danger-soft);color:var(--danger);}
+.quiz-input-sm{width:38px;padding:5px 2px;font-size:12px;}
 .quiz-unit{font-size:10.5px;color:var(--ink-dim);flex-shrink:0;}
-.quiz-correct-answer{display:block;width:100%;font-size:9px;color:var(--danger);font-family:var(--font-mono);margin-top:2px;}
+.quiz-template-cell{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:2px 1px;}
+.quiz-template-text{font-family:var(--font-mono);font-size:12px;color:var(--ink);white-space:nowrap;}
+.quiz-correct-answer{display:inline-block;font-size:9px;color:var(--danger);font-family:var(--font-mono);margin:2px 3px 0 0;background:rgba(192,69,58,0.08);padding:1px 4px;border-radius:5px;}
 .quiz-summary-score{font-family:var(--font-display);font-weight:900;font-size:20px;}
 .quiz-summary-score.full{color:var(--teal);}
 .quiz-summary-score.partial{color:var(--amber);}
@@ -1566,6 +1569,43 @@ function screenTableQuiz(params){
     table.columns.forEach(col=>{
       if(col.type === 'fixed'){
         tr.appendChild(h('td',{class:'quiz-fixed'}, String(row[col.key])));
+      } else if(col.type === 'mixed'){
+        // 列全体としては穴埋め列だが、行によって「固定表示」か「入力欄」かを
+        // 個別に切り替えたいケース用(例: 表の一部の行だけセルが結合されているような場合)。
+        // row[col.key] は { type:'fixed', text:'…' } か { type:'blank', value:'…', unit?:'…' } の形で指定する。
+        const cell = row[col.key] || {};
+        if(cell.type === 'fixed'){
+          tr.appendChild(h('td',{class:'quiz-fixed'}, String(cell.text)));
+        } else {
+          const unit = cell.unit || col.unit || '';
+          const input = h('input',{
+            class:'quiz-input', type:'text', inputmode:'decimal',
+            autocomplete:'off', autocorrect:'off', spellcheck:'false', placeholder:'?'
+          });
+          blanks.push({ input, correct: cell.value, unit });
+          tr.appendChild(h('td',{},[
+            h('div',{class:'quiz-input-cell'},[input, h('span',{class:'quiz-unit'}, unit)])
+          ]));
+        }
+      } else if(col.type === 'template'){
+        // 「2.6mm(5.5mm²)以上」のように、1つのセルの中に固定の文言と
+        // 複数の数値入力欄が混在するケース用。row[col.key] は文字列(固定文言)と
+        // {v:'正解の数値'}(入力欄)を順番に並べた配列で指定する。
+        const segments = row[col.key] || [];
+        const cellWrap = h('div',{class:'quiz-template-cell'});
+        segments.forEach(seg=>{
+          if(typeof seg === 'string'){
+            cellWrap.appendChild(h('span',{class:'quiz-template-text'}, seg));
+          } else if(seg && typeof seg === 'object' && 'v' in seg){
+            const input = h('input',{
+              class:'quiz-input quiz-input-sm', type:'text', inputmode:'decimal',
+              autocomplete:'off', autocorrect:'off', spellcheck:'false', placeholder:'?'
+            });
+            blanks.push({ input, correct: seg.v, unit:'' });
+            cellWrap.appendChild(input);
+          }
+        });
+        tr.appendChild(h('td',{}, cellWrap));
       } else {
         const input = h('input',{
           class:'quiz-input', type:'text', inputmode:'decimal',
@@ -1602,8 +1642,7 @@ function screenTableQuiz(params){
       if(ok){
         correctCount++;
       } else {
-        const cell = b.input.closest('.quiz-input-cell');
-        if(cell) cell.appendChild(h('span',{class:'quiz-correct-answer'}, `正解: ${b.correct}${b.unit}`));
+        b.input.insertAdjacentElement('afterend', h('span',{class:'quiz-correct-answer'}, `正解:${b.correct}${b.unit}`));
       }
     });
     const total = blanks.length;
