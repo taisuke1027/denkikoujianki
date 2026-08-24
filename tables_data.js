@@ -32,14 +32,14 @@ window.DEFAULT_TABLES = [
     columns: [
       { key: 'diameter', label: '単線(直径)', type: 'fixed' },
       { key: 'amp_solid', label: '許容電流', type: 'blank', unit: 'A' },
-      { key: 'csa', label: 'より線(総断面積)', type: 'blank', unit: 'mm²' },
+      { key: 'csa', label: 'より線(総断面積)', type: 'fixed' },
       { key: 'amp_stranded', label: '許容電流', type: 'blank', unit: 'A' }
     ],
     rows: [
-      { diameter: '1.6mm', amp_solid: '27', csa: '2', amp_stranded: '27' },
-      { diameter: '2.0mm', amp_solid: '35', csa: '3.5', amp_stranded: '37' },
-      { diameter: '2.6mm', amp_solid: '48', csa: '5.5', amp_stranded: '49' },
-      { diameter: '3.2mm', amp_solid: '62', csa: '8', amp_stranded: '61' }
+      { diameter: '1.6mm', amp_solid: '27', csa: '2mm²', amp_stranded: '27' },
+      { diameter: '2.0mm', amp_solid: '35', csa: '3.5mm²', amp_stranded: '37' },
+      { diameter: '2.6mm', amp_solid: '48', csa: '5.5mm²', amp_stranded: '49' },
+      { diameter: '3.2mm', amp_solid: '62', csa: '8mm²', amp_stranded: '61' }
     ]
   },
 
